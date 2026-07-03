@@ -13,7 +13,7 @@ profile:
     <p>University of Sydney</p>
     <p>NSW 2006, Australia</p>
 
-selected_papers: true
+selected_papers: false
 social: true
 
 announcements:
@@ -42,3 +42,7 @@ Our projects span theoretical advances and practical systems, including WaSeCom 
 ## Team
 
 DUAL brings together researchers, students, and collaborators across machine learning, distributed systems, optimization, and edge intelligence. We mentor emerging researchers while advancing practical and theoretical foundations for intelligent systems.
+
+## [highlighted publication]({{ '/publications/' | relative_url }})
+
+{% include selected_papers.liquid %}
