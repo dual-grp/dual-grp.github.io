@@ -371,7 +371,6 @@ li,
 h1,
 h2,
 h3,
-h5,
 pre,
 code,
 form,
@@ -455,13 +454,6 @@ pre {
   background-color: #efefef;
   border: 1px solid #e7e7e7;
   border-radius: 2px;
-}
-
-hr {
-  margin-top: 8px;
-  margin-bottom: 10px;
-  border: 0;
-  border-top: 1px solid #126dce;
 }
 
 #complete > select > option:hover {
