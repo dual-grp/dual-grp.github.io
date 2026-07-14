@@ -1,56 +1,50 @@
-{% assign repo_parts = include.repository | split: "/" %}
+{% assign repo_parts = include.repository | split: '/' %}
 {% assign repo_owner = repo_parts[0] %}
 {% assign repo_name = repo_parts[1] %}
 {% assign display_name = repo_name %}
-{% assign description = "Research code released by the DUAL Group." %}
-{% assign tags = "Research code|GitHub" | split: "|" %}
+{% assign description = 'Research code released by the DUAL Group.' %}
+{% assign tags = 'Research code|GitHub' | split: '|' %}
 
 {% case repo_name %}
-  {% when "FedPCA_AnomalyDetection" %}
-    {% assign display_name = "FedPCA Anomaly Detection" %}
-    {% assign description = "Code release for federated PCA on Grassmann manifold for anomaly detection, associated with the ToN 2024 work." %}
-    {% assign tags = "Python|Federated PCA|Anomaly detection" | split: "|" %}
-  {% when "FedPCA_Abnormal_Detection" %}
-    {% assign display_name = "FedPCA Abnormal Detection" %}
-    {% assign description = "Code release for federated PCA on Grassmann manifold for anomaly detection in IoT networks, associated with INFOCOM 2023." %}
-    {% assign tags = "Python|IoT networks|FedPCA" | split: "|" %}
-  {% when "FeDEQ" %}
-    {% assign display_name = "FeDEQ" %}
-    {% assign description = "Federated deep equilibrium learning code for compact global representations and personalized federated learning." %}
-    {% assign tags = "Python|Federated learning|Personalization" | split: "|" %}
-  {% when "FedU_FMTL" %}
-    {% assign display_name = "FedU FMTL" %}
-    {% assign description = "Federated multitask learning implementation using Laplacian regularization and FedU-style optimization." %}
-    {% assign tags = "Python|Multitask learning|Optimization" | split: "|" %}
-  {% when "pFedMe" %}
-    {% assign display_name = "pFedMe" %}
-    {% assign description = "Personalized federated learning with Moreau envelopes for learning under statistical heterogeneity." %}
-    {% assign tags = "Python|Personalized FL|Moreau envelopes" | split: "|" %}
-  {% when "FedKO" %}
-    {% assign display_name = "FedKO" %}
-    {% assign description = "Research code for Federated Koopman-Reservoir Learning for Large-Scale Multivariate Time-Series Anomaly Detection." %}
-    {% assign tags = "Python|Federated learning|Active" | split: "|" %}
+  {% when 'FedPCA_AnomalyDetection' %}
+    {% assign display_name = 'FedPCA Anomaly Detection' %}
+    {% assign description = 'Code release for federated PCA on Grassmann manifold for anomaly detection, associated with the ToN 2024 work.' %}
+    {% assign tags = 'Python|Federated PCA|Anomaly detection' | split: '|' %}
+  {% when 'FedPCA_Abnormal_Detection' %}
+    {% assign display_name = 'FedPCA Abnormal Detection' %}
+    {% assign description = 'Code release for federated PCA on Grassmann manifold for anomaly detection in IoT networks, associated with INFOCOM 2023.' %}
+    {% assign tags = 'Python|IoT networks|FedPCA' | split: '|' %}
+  {% when 'FeDEQ' %}
+    {% assign display_name = 'FeDEQ' %}
+    {% assign description = 'Federated deep equilibrium learning code for compact global representations and personalized federated learning.' %}
+    {% assign tags = 'Python|Federated learning|Personalization' | split: '|' %}
+  {% when 'FedU_FMTL' %}
+    {% assign display_name = 'FedU FMTL' %}
+    {% assign description = 'Federated multitask learning implementation using Laplacian regularization and FedU-style optimization.' %}
+    {% assign tags = 'Python|Multitask learning|Optimization' | split: '|' %}
+  {% when 'pFedMe' %}
+    {% assign display_name = 'pFedMe' %}
+    {% assign description = 'Personalized federated learning with Moreau envelopes for learning under statistical heterogeneity.' %}
+    {% assign tags = 'Python|Personalized FL|Moreau envelopes' | split: '|' %}
+  {% when 'FedKO' %}
+    {% assign display_name = 'FedKO' %}
+    {% assign description = 'Research code for Federated Koopman-Reservoir Learning for Large-Scale Multivariate Time-Series Anomaly Detection.' %}
+    {% assign tags = 'Python|Federated learning|Active' | split: '|' %}
 {% endcase %}
 
-<div class="col mb-3">
-  <a class="text-decoration-none text-reset d-block h-100" href="https://github.com/{{ include.repository }}" target="_blank" rel="external nofollow noopener">
-    <div class="card h-100 hoverable" style="border-radius: 8px; border: 1px solid var(--global-divider-color);">
-      <div class="card-body d-flex flex-column">
-        <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
-          <h5 class="card-title mb-0" style="line-height: 1.25;">{{ display_name }}</h5>
-          <i class="fa-brands fa-github text-muted mt-1" aria-hidden="true"></i>
-        </div>
-        <p class="card-text text-muted small mb-2">{{ repo_owner }}/{{ repo_name }}</p>
-        <p class="card-text mb-3" style="font-size: 0.95rem;">{{ description }}</p>
-        <div class="mt-auto">
-          <div class="mb-3">
-            {% for tag in tags %}
-              <span class="badge rounded-pill text-bg-light border me-1 mb-1">{{ tag }}</span>
-            {% endfor %}
-          </div>
-          <span class="small text-primary">View repository <i class="fa-solid fa-arrow-up-right-from-square ms-1" aria-hidden="true"></i></span>
-        </div>
-      </div>
+<article class="dual-repository-card">
+  <a href="https://github.com/{{ include.repository }}" target="_blank" rel="external nofollow noopener">
+    <div class="dual-repository-card__topline">
+      <p>{{ repo_owner }}/{{ repo_name }}</p>
+      <i class="fa-brands fa-github" aria-hidden="true"></i>
     </div>
+    <h3>{{ display_name }}</h3>
+    <p class="dual-repository-card__description">{{ description }}</p>
+    <ul aria-label="{{ display_name }} topics">
+      {% for tag in tags %}
+        <li>{{ tag }}</li>
+      {% endfor %}
+    </ul>
+    <span class="dual-repository-card__action">View repository <span aria-hidden="true">↗</span></span>
   </a>
-</div>
+</article>

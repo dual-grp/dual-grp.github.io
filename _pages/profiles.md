@@ -1,43 +1,75 @@
 ---
-layout: page
+layout: default
 permalink: /people/
-title: people
+title: People
 description: members of the DUAL Group
 nav: true
 nav_order: 3
 ---
 
-Our diverse team brings together researchers, students, and collaborators working across federated learning, distributed optimization, edge intelligence, and large language models.
+<link rel="stylesheet" href="{{ '/assets/css/sections.css' | relative_url }}">
 
-{% assign role_groups = "professor:Lab Director|phd:PhD|mphil:MPhil|research-pathway:Research Pathway|honours:Honours|alumni:Alumni" | split: "|" %}
+<div class="dual-people">
+  <header class="dual-people__intro">
+    <p class="dual-section-kicker">People &amp; collaboration</p>
+    <h1>The people behind DUAL.</h1>
+    <p>
+      Our group brings together researchers and students working across distributed intelligence, optimization, reliable AI, and
+      efficient learning systems.
+    </p>
+  </header>
 
-{% for role_group in role_groups %}
-  {% assign role_parts = role_group | split: ":" %}
-  {% assign role_key = role_parts[0] %}
-  {% assign role_label = role_parts[1] %}
-  {% assign members = site.members | where: "role", role_key | sort: "name" %}
-  {% if members.size > 0 %}
-## {{ role_label }}
+{% assign role_groups = "professor:Leadership|phd:PhD researchers|mphil:MPhil researchers|research-pathway:Research pathway|honours:Honours students|alumni:Alumni" | split: "|" %}
 
-<div class="row row-cols-1 row-cols-md-3 g-4 mb-4">
-  {% for member in members %}
-    <div class="col mb-4">
-      <div class="card h-100">
-        {% if member.image %}
-          <a href="{{ member.url | relative_url }}">
-            <img class="card-img-top" src="{{ member.image | relative_url }}" alt="{{ member.name }}" style="aspect-ratio: 1 / 1; object-fit: cover;">
-          </a>
-        {% endif %}
-        <div class="card-body">
-          <h5 class="card-title mb-1"><a href="{{ member.url | relative_url }}">{{ member.name }}</a></h5>
-          {% if member.description %}
-            <p class="card-text small mb-2">{{ member.description }}</p>
-          {% endif %}
-          {% include member_links.liquid links=member.links %}
-        </div>
-      </div>
+  <div class="dual-people__groups">
+    {% for role_group in role_groups %}
+      {% assign role_parts = role_group | split: ":" %}
+      {% assign role_key = role_parts[0] %}
+      {% assign role_label = role_parts[1] %}
+      {% assign members = site.members | where: "role", role_key | sort: "name" %}
+      {% if members.size > 0 %}
+        <section class="dual-people__group" aria-labelledby="dual-people-{{ role_key }}">
+          <div class="dual-people__group-heading">
+            <div>
+              <p class="dual-section-kicker">{{ role_label }}</p>
+              <h2 id="dual-people-{{ role_key }}">{{ role_label }}</h2>
+            </div>
+            <span>{{ members.size }} {% if members.size == 1 %}member{% else %}members{% endif %}</span>
+          </div>
+
+          <div class="dual-people__grid">
+            {% for member in members %}
+              <article class="dual-person-card">
+                {% if member.image %}
+                  <a class="dual-person-card__image" href="{{ member.url | relative_url }}" tabindex="-1" aria-hidden="true">
+                    <img src="{{ member.image | prepend: '/' | relative_url }}" alt="" loading="lazy">
+                  </a>
+                {% endif %}
+                <div class="dual-person-card__body">
+                  <h3><a href="{{ member.url | relative_url }}">{{ member.name }}</a></h3>
+                  {% if member.description %}
+                    <p>{{ member.description }}</p>
+                  {% endif %}
+                  {% include member_links.liquid links=member.links %}
+                </div>
+              </article>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+    {% endfor %}
+
+  </div>
+
+  <section class="dual-people__closing" aria-labelledby="dual-people-connect">
+    <div>
+      <p class="dual-section-kicker">People &amp; collaboration</p>
+      <h2 id="dual-people-connect">Connect with the group.</h2>
+      <p>Learn more about our research or get in touch to start a conversation.</p>
     </div>
-  {% endfor %}
+    <div class="dual-people__closing-actions">
+      <a href="{{ '/publications/' | relative_url }}">Explore research</a>
+      <a href="{{ '/contact/' | relative_url }}">Contact DUAL</a>
+    </div>
+  </section>
 </div>
-  {% endif %}
-{% endfor %}

@@ -2,6 +2,10 @@
   url: https://arxiv.org/
   color: "#b31b1b"
 
+"CVPR":
+  url: https://cvpr.thecvf.com/
+  color: "#0071bc"
+
 "TON":
   url: https://ieeexplore.ieee.org/xpl/RecentIssue.jsp?punumber=90
   color: "#00629b"

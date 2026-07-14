@@ -15,6 +15,7 @@ const webServer = process.env.NO_WEBSERVER
 
 module.exports = {
   testDir: __dirname,
+  snapshotPathTemplate: "{testDir}/{testFilePath}-snapshots/{arg}{ext}",
   timeout: 120000,
   expect: {
     timeout: 10000,

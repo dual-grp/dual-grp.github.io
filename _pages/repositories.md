@@ -1,34 +1,49 @@
 ---
-layout: page
+layout: default
 permalink: /repositories/
-title: repositories
+title: Repositories
 description: GitHub organization and repositories for the DUAL Group.
 nav: true
 nav_order: 5
 ---
 
-## GitHub Organization
+<link rel="stylesheet" href="{{ '/assets/css/sections.css' | relative_url }}">
 
-The DUAL Group maintains its code and project repositories under the [dual-grp GitHub organization](https://github.com/dual-grp).
+<div class="dual-repositories">
+  <header class="dual-repositories__intro">
+    <p class="dual-section-kicker">Open research</p>
+    <h1>Code for reproducible systems.</h1>
+    <p>
+      Explore implementations and research artifacts from DUAL work in federated learning, distributed optimization, anomaly
+      detection, and efficient AI systems.
+    </p>
+  </header>
 
-{% if site.data.repositories.github_users %}
-
-<div class="repositories d-flex flex-wrap flex-md-row flex-column justify-content-between align-items-center">
-  {% for user in site.data.repositories.github_users %}
-    {% include repository/repo_user.liquid username=user %}
-  {% endfor %}
+{% assign github_org = site.data.repositories.github_users | first %}
+{% if github_org %}
+<section class="dual-repositories__organization" aria-labelledby="dual-repositories-organization">
+<div>
+<p class="dual-section-kicker">GitHub organization</p>
+<h2 id="dual-repositories-organization">dual-grp</h2>
+<p>The DUAL Group maintains its public research code and project repositories in one shared organization.</p>
 </div>
-
----
+<a href="https://github.com/{{ github_org }}" target="_blank" rel="external nofollow noopener">
+View organization <span aria-hidden="true">↗</span>
+</a>
+</section>
 {% endif %}
 
 {% if site.data.repositories.github_repos %}
-
-## GitHub Repositories
-
-<div class="repositories row row-cols-1 row-cols-md-2 g-3 align-items-stretch">
-  {% for repo in site.data.repositories.github_repos %}
-    {% include repository/repo.liquid repository=repo %}
-  {% endfor %}
+<section class="dual-repositories__catalog" aria-labelledby="dual-repositories-catalog">
+<div class="dual-repositories__section-heading">
+<p class="dual-section-kicker">Selected repositories</p>
+<h2 id="dual-repositories-catalog">Research code from the group.</h2>
 </div>
+<div class="dual-repositories__grid">
+{% for repo in site.data.repositories.github_repos %}
+{% include repository/repo.liquid repository=repo %}
+{% endfor %}
+</div>
+</section>
 {% endif %}
+</div>
