@@ -1,14 +1,13 @@
 ---
 name: "Zerun Niu"
 role: mphil
-description: "Distributed AI systems, federated learning, RAG"
+description: "Federated learning, semantic communication, reliable machine learning"
 image: /assets/img/team/zerun.jpg
 links:
   github: "zerunniu"
+  home-page: "https://zerunniu.github.io"
   email: "nzr2210787575@gmail.com"
 ---
-Zerun Niu is a Master of Philosophy candidate in Computer Science at the University of Sydney and a member of the DUAL Research Group. His research focuses on efficient and reliable distributed AI systems, including federated learning, edge intelligence, crowdsourced label aggregation, and graph-based knowledge representation for retrieval-augmented generation.
+Zerun Niu is a Master of Philosophy (Engineering) candidate at the University of Sydney, supervised by Prof. Nguyen Tran in the DUAL Group. His research focuses on reliable and efficient AI systems, spanning federated learning, wireless semantic communication with large AI models, and trustworthy machine learning under sparse or noisy supervision.
 
-He is also a Casual Academic and Research Assistant at the University of Sydney, with experience in teaching, model optimization, federated learning systems, and cross-domain AI applications. His research has been published in IEEE Journal on Selected Areas in Communications, and he has served as a reviewer for IEEE Transactions on Machine Learning in Communications and Networking.
-
-His current work aims to improve the robustness, efficiency, and probabilistic reliability of machine learning systems under communication, computation, and data-quality constraints.
+He is a Research Assistant with the DUAL Group and a Casual Academic at the University of Sydney and UNSW Sydney. His work on distributionally robust semantic communication has been published in IEEE Journal on Selected Areas in Communications, with further papers on federated deep equilibrium learning and reliable crowdsourced label aggregation under review. He also designed, built, and maintains the DUAL Group's website.
