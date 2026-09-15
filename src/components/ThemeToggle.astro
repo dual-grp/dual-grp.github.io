@@ -1,0 +1,45 @@
+---
+
+---
+
+<button
+  id="theme-toggle"
+  type="button"
+  class="font-mono text-xs border border-line rounded px-2 py-1 text-muted hover:text-fg hover:border-accent transition-colors"
+  aria-label="Cycle color theme (auto, light, dark)"
+>
+  AUTO
+</button>
+
+<script>
+  const ORDER = ['auto', 'light', 'dark'] as const;
+  type Theme = (typeof ORDER)[number];
+
+  const button = document.getElementById('theme-toggle');
+  const root = document.documentElement;
+
+  function current(): Theme {
+    const stored = localStorage.getItem('theme');
+    return stored === 'light' || stored === 'dark' ? stored : 'auto';
+  }
+
+  function apply(theme: Theme) {
+    if (theme === 'auto') {
+      localStorage.removeItem('theme');
+      root.removeAttribute('data-theme');
+      root.style.colorScheme = 'light dark';
+    } else {
+      localStorage.setItem('theme', theme);
+      root.dataset.theme = theme;
+      root.style.colorScheme = theme;
+    }
+    if (button) button.textContent = theme.toUpperCase();
+  }
+
+  apply(current());
+
+  button?.addEventListener('click', () => {
+    const next = ORDER[(ORDER.indexOf(current()) + 1) % ORDER.length];
+    apply(next);
+  });
+</script>

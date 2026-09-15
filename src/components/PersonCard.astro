@@ -1,0 +1,94 @@
+---
+import type { CollectionEntry } from 'astro:content';
+import { resolveMemberImage, resolveMemberLinks } from '../utils/members';
+
+interface Props {
+  member: CollectionEntry<'members'>;
+  featured?: boolean;
+}
+
+const { member, featured = false } = Astro.props;
+const { name, description, image } = member.data;
+const href = `/members/${member.id}/`;
+const portrait = resolveMemberImage(image);
+const links = resolveMemberLinks(member.data.links);
+---
+
+<article
+  class:list={[
+    'group',
+    featured && 'mx-auto flex max-w-sm flex-col items-center text-center',
+  ]}
+>
+  {
+    portrait && (
+      <a
+        href={href}
+        tabindex="-1"
+        aria-hidden="true"
+        class:list={[
+          'card block overflow-hidden transition-colors group-hover:border-accent/50',
+          featured && 'w-52 sm:w-64',
+        ]}
+      >
+        <img
+          src={portrait}
+          alt=""
+          loading={featured ? 'eager' : 'lazy'}
+          sizes={
+            featured
+              ? '11rem'
+              : '(min-width: 1024px) 25vw, (min-width: 640px) 33vw, 50vw'
+          }
+          class="aspect-[4/5] w-full object-cover"
+        />
+      </a>
+    )
+  }
+
+  <div class:list={[featured ? 'mt-5' : 'mt-3']}>
+    <h3 class:list={['font-semibold tracking-tight', featured ? 'text-2xl' : 'text-base']}>
+      <a href={href} class="hover:text-accent transition-colors">
+        {name}
+      </a>
+    </h3>
+    {
+      description && (
+        <p
+          class:list={[
+            'mt-1.5 text-muted leading-relaxed',
+            featured ? 'text-sm' : 'text-xs line-clamp-2',
+          ]}
+        >
+          {description}
+        </p>
+      )
+    }
+
+    {
+      links.length > 0 && (
+        <ul
+          class:list={[
+            'mt-2.5 flex flex-wrap gap-x-3 gap-y-1 font-mono text-xs',
+            featured && 'justify-center',
+          ]}
+        >
+          {links.map((link) => (
+            <li>
+              <a
+                href={link.href}
+                class="text-accent hover:underline underline-offset-4 decoration-line"
+                {...(link.external ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+              >
+                <span class="text-muted">[</span>
+                {link.label}
+                <span class="text-muted">]</span>
+                {link.external && <span class="sr-only">(opens in new tab)</span>}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )
+    }
+  </div>
+</article>

@@ -1,0 +1,419 @@
+---
+interface Props {
+  class?: string;
+  /** Initial label in counter mode (no cycling). Updated externally via [data-orb-text]. */
+  label?: string;
+  /** Status strings to cycle through (flavor mode), e.g. ["solving…", "federating…"]. */
+  states?: string[];
+  /** Motion modes aligned with `states` — cycled together with the label. */
+  modes?: string[];
+  /** Static motion mode when not cycling: globe | orbits | web | ring. */
+  mode?: string;
+  /** Seconds per state when cycling. */
+  interval?: number;
+  /** Naked canvas only (theme-card motif) — no pill chrome, no label. */
+  bare?: boolean;
+  /** Pill without border/background — naked cloud + label. */
+  plain?: boolean;
+}
+
+const {
+  class: className,
+  label = '',
+  states = [],
+  modes = [],
+  mode,
+  interval = 3,
+  bare = false,
+  plain = false,
+} = Astro.props;
+const initialState = states[0] ?? label;
+const initialMode = mode ?? modes[0] ?? 'globe';
+// Reserve room for the longest cycling label so the pill never reflows the
+// surrounding layout as the text swaps (mono ≈ 0.6em advance + buffer).
+const maxStateLen = states.length > 1 ? Math.max(...states.map((s) => s.length)) : 0;
+---
+
+{
+  bare ? (
+    <div class:list={[className]} data-orb-status data-bare data-mode={initialMode}>
+      <canvas class="block h-full w-full" aria-hidden="true" />
+    </div>
+  ) : (
+    <div
+      class:list={[
+        plain
+          ? 'inline-flex items-center gap-3'
+          : 'inline-flex items-center gap-3 rounded-full border border-line bg-bg-elev py-2 pl-2.5 pr-4',
+        className,
+      ]}
+      data-orb-status
+      data-states={states.length > 1 ? states.join('|') : undefined}
+      data-modes={modes.length === states.length && states.length > 1 ? modes.join('|') : undefined}
+      data-interval={interval}
+      data-mode={initialMode}
+    >
+      <canvas class="block h-9 w-9" aria-hidden="true" />
+      <span
+        class="font-mono text-sm whitespace-nowrap text-muted transition-opacity duration-300"
+        style={maxStateLen ? `min-width:${(maxStateLen * 0.68).toFixed(2)}em` : undefined}
+        data-orb-text
+      >
+        {initialState}
+      </span>
+    </div>
+  )
+}
+
+<script>
+  // Thinking-orbs inspired status capsule (ref: libraries.dev thinking-orbs):
+  // each status maps to a dot-cloud MOTION — globe (rotating sphere),
+  // orbits (dots traveling tilted rings), web (node graph with traveling
+  // pulses), ring (breathing circle). External scripts switch the motion via
+  // the root's data-mode attribute.
+  //
+  // Palette: dots interpolate --muted (far) → --accent (near), so the orb
+  // reads as one small accent mark of the theme (the same role the crosshair
+  // plays in type). prefers-reduced-motion renders one static frame; rAF
+  // pauses while document.hidden; DPR capped at 2.
+  const POINTS = 150;
+  const WEB_NODES = 14;
+  const PERSPECTIVE = 3.4;
+  const LUT_N = 32;
+  const MODES = ['globe', 'orbits', 'web', 'ring'];
+
+  const hexToRgb = (hex: string): [number, number, number] | null => {
+    const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
+    if (!m) return null;
+    let s = m[1] ?? '';
+    if (s.length === 3)
+      s = s
+        .split('')
+        .map((c) => c + c)
+        .join('');
+    const n = parseInt(s, 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+
+  // Deterministic fibonacci sphere (globe) — the first WEB_NODES entries also
+  // seed the web mode's node graph.
+  const sphere: [number, number, number][] = [];
+  {
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < POINTS; i++) {
+      const y = 1 - (i / (POINTS - 1)) * 2;
+      const r = Math.sqrt(Math.max(0, 1 - y * y));
+      const th = golden * i;
+      sphere.push([Math.cos(th) * r, y, Math.sin(th) * r]);
+    }
+  }
+
+  // Web mode gets its own even fibonacci set (the first POINTS entries of the
+  // sphere all crowd the north pole, so slicing would cluster the graph).
+  const webNodes: [number, number, number][] = [];
+  {
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    for (let i = 0; i < WEB_NODES; i++) {
+      const y = 1 - (i / (WEB_NODES - 1)) * 2;
+      const r = Math.sqrt(Math.max(0, 1 - y * y));
+      const th = golden * i;
+      webNodes.push([Math.cos(th) * r, y, Math.sin(th) * r]);
+    }
+  }
+  // Web edges: node pairs within chord distance, computed once.
+  const webEdges: [number, number][] = [];
+  for (let a = 0; a < WEB_NODES; a++) {
+    for (let b = a + 1; b < WEB_NODES; b++) {
+      const [ax, ay, az] = webNodes[a]!;
+      const [bx, by, bz] = webNodes[b]!;
+      if (Math.hypot(ax - bx, ay - by, az - bz) < 1.1) webEdges.push([a, b]);
+    }
+  }
+
+  // Orbits: tilted rings with dots traveling at per-ring speeds.
+  const ORBITS = [
+    { r: 0.95, tiltX: 0.45, tiltZ: 0.2, n: 12, speed: 0.85, phase: 0 },
+    { r: 0.7, tiltX: 1.1, tiltZ: -0.4, n: 9, speed: -0.6, phase: 1.3 },
+    { r: 0.46, tiltX: 1.85, tiltZ: 0.65, n: 6, speed: 0.45, phase: 2.6 },
+  ];
+
+  const initOrb = (root: HTMLElement) => {
+    const canvas = root.querySelector<HTMLCanvasElement>('canvas');
+    const textEl = root.querySelector<HTMLElement>('[data-orb-text]');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    let w = 0;
+    let h = 0;
+    let muted = '#55677c';
+    let accent = '#0070b5';
+    let lut: string[] = [];
+
+    const readPalette = () => {
+      const cs = getComputedStyle(document.documentElement);
+      muted = cs.getPropertyValue('--muted').trim() || muted;
+      accent = cs.getPropertyValue('--accent').trim() || accent;
+      const a = hexToRgb(muted) ?? [85, 103, 124];
+      const b = hexToRgb(accent) ?? [0, 112, 181];
+      lut = Array.from({ length: LUT_N }, (_, i) => {
+        const t = i / (LUT_N - 1);
+        const r = Math.round(a[0] + (b[0] - a[0]) * t);
+        const g = Math.round(a[1] + (b[1] - a[1]) * t);
+        const bl = Math.round(a[2] + (b[2] - a[2]) * t);
+        return `rgb(${r},${g},${bl})`;
+      });
+    };
+
+    const layout = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const rect = canvas.getBoundingClientRect();
+      w = Math.max(1, rect.width);
+      h = Math.max(1, rect.height);
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+
+    // Rotation state; hover spins the motion up, then it eases back.
+    let yaw = 0.6;
+    let speed = 0.24;
+    let speedTarget = 0.24;
+    let last: number | null = null;
+
+    // Active motion + crossfade on switches.
+    let modeName = MODES.includes(root.dataset.mode ?? '') ? root.dataset.mode! : 'globe';
+    let modeStart = 0;
+
+    const setMode = (next: string) => {
+      if (!MODES.includes(next) || next === modeName) return;
+      modeName = next;
+      modeStart = performance.now();
+    };
+
+    const project = (x: number, y: number, z: number, R: number, pitch: number) => {
+      const cy = Math.cos(yaw);
+      const sy = Math.sin(yaw);
+      const cx = Math.cos(pitch);
+      const sx = Math.sin(pitch);
+      const x1 = x * cy + z * sy;
+      const z1 = -x * sy + z * cy;
+      const y1 = y * cx - z1 * sx;
+      const z2 = y * sx + z1 * cx;
+      const s = PERSPECTIVE / (PERSPECTIVE - z2);
+      return {
+        x: w / 2 + x1 * R * s,
+        y: h / 2 + y1 * R * s,
+        depth: (z2 + 1) / 2, // 0 = far, 1 = near
+      };
+    };
+
+    const dot = (px: number, py: number, depth: number, fade: number, boost = 1) => {
+      ctx.beginPath();
+      ctx.fillStyle = lut[Math.round(depth * (LUT_N - 1))];
+      ctx.globalAlpha = (0.16 + 0.84 * depth * depth) * fade;
+      ctx.arc(px, py, (0.35 + 1.05 * depth) * (w / 36) * boost, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    const drawGlobe = (t: number, R: number, fade: number, breathe: number) => {
+      const pitch = Math.sin(t * 0.21) * 0.45;
+      for (const [x, y, z] of sphere) {
+        const p = project(x, y, z, R * breathe, pitch);
+        dot(p.x, p.y, p.depth, fade);
+      }
+    };
+
+    const drawOrbits = (t: number, R: number, fade: number) => {
+      const spin = speed / 0.24; // hover boost also drives the travelers
+      for (const ring of ORBITS) {
+        const cxt = Math.cos(ring.tiltX);
+        const sxt = Math.sin(ring.tiltX);
+        const czt = Math.cos(ring.tiltZ);
+        const szt = Math.sin(ring.tiltZ);
+        for (let k = 0; k < ring.n; k++) {
+          const a = ring.phase + (k / ring.n) * Math.PI * 2 + t * ring.speed * spin;
+          let x = Math.cos(a) * ring.r;
+          let y = 0;
+          let z = Math.sin(a) * ring.r;
+          // Tilt the ring plane, then let the global yaw carry it around.
+          const y2 = y * cxt - z * sxt;
+          const z2 = y * sxt + z * cxt;
+          const x3 = x * czt - y2 * szt;
+          const y3 = x * szt + y2 * czt;
+          const p = project(x3, y3, z2, R, 0.18);
+          dot(p.x, p.y, p.depth, fade, 0.9);
+        }
+      }
+    };
+
+    const drawWeb = (t: number, R: number, fade: number, breathe: number) => {
+      const pitch = Math.sin(t * 0.17) * 0.3;
+      const pts = webNodes.map(([x, y, z]) => project(x, y, z, R * breathe, pitch));
+
+      // One edge carries a bright pulse; the active edge advances slowly.
+      const cycle = (t % 1.8) / 1.2;
+
+      ctx.lineWidth = 1;
+      for (let e = 0; e < webEdges.length; e++) {
+        const [a, b] = webEdges[e]!;
+        const pa = pts[a]!;
+        const pb = pts[b]!;
+        const d = (pa.depth + pb.depth) / 2;
+        ctx.beginPath();
+        ctx.strokeStyle = lut[Math.round(d * (LUT_N - 1))];
+        ctx.globalAlpha = (0.08 + 0.3 * d * d) * fade;
+        ctx.moveTo(pa.x, pa.y);
+        ctx.lineTo(pb.x, pb.y);
+        ctx.stroke();
+
+        if (e === Math.floor(t / 1.8) % webEdges.length && cycle < 1) {
+          const px = pa.x + (pb.x - pa.x) * cycle;
+          const py = pa.y + (pb.y - pa.y) * cycle;
+          ctx.beginPath();
+          ctx.fillStyle = lut[LUT_N - 1];
+          ctx.globalAlpha = 0.9 * fade;
+          ctx.arc(px, py, (w / 36) * 1.1, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      for (const p of pts) dot(p.x, p.y, p.depth, fade, 1.05);
+    };
+
+    const drawRing = (t: number, R: number, fade: number) => {
+      const spin = speed / 0.24;
+      const breathe = 1 + 0.09 * Math.sin(t * 1.3);
+      const layers = [
+        { r: 0.92, n: 22, dir: 1, size: 1 },
+        { r: 0.58, n: 12, dir: -1, size: 0.85 },
+      ];
+      for (const layer of layers) {
+        for (let k = 0; k < layer.n; k++) {
+          const a = (k / layer.n) * Math.PI * 2 + t * 0.22 * layer.dir * spin;
+          const rr = R * layer.r * breathe * (1 + 0.05 * Math.sin(t * 1.7 + k * 1.9));
+          const depth = 0.55 + 0.45 * Math.sin(a + t * 0.4);
+          ctx.beginPath();
+          ctx.fillStyle = lut[Math.round(depth * (LUT_N - 1))];
+          ctx.globalAlpha = (0.25 + 0.6 * depth * depth) * fade;
+          ctx.arc(
+            w / 2 + Math.cos(a) * rr,
+            h / 2 + Math.sin(a) * rr,
+            (0.35 + 0.9 * depth) * (w / 36) * layer.size,
+            0,
+            Math.PI * 2,
+          );
+          ctx.fill();
+        }
+      }
+    };
+
+    const draw = (now: number, animate: boolean) => {
+      ctx.clearRect(0, 0, w, h);
+      if (lut.length === 0) return;
+
+      const t = now / 1000;
+      if (animate) {
+        if (last !== null) {
+          speed += (speedTarget - speed) * 0.05;
+          yaw += ((now - last) / 1000) * speed;
+        }
+        last = now;
+      }
+
+      const fade = animate ? Math.min(1, (now - modeStart) / 350) : 1;
+      const breathe = 1 + 0.035 * Math.sin(t * 1.15);
+      const R = (Math.min(w, h) / 2) * 0.82;
+
+      if (modeName === 'orbits') drawOrbits(t, R, fade);
+      else if (modeName === 'web') drawWeb(t, R, fade, breathe);
+      else if (modeName === 'ring') drawRing(t, R, fade);
+      else drawGlobe(t, R, fade, breathe);
+
+      ctx.globalAlpha = 1;
+    };
+
+    const loop = (now: number) => {
+      draw(now, true);
+      raf = requestAnimationFrame(loop);
+    };
+
+    let raf = 0;
+    const start = () => {
+      cancelAnimationFrame(raf);
+      if (reduced) {
+        draw(1200, false);
+      } else {
+        last = null;
+        raf = requestAnimationFrame(loop);
+      }
+    };
+
+    readPalette();
+    layout();
+    start();
+
+    new ResizeObserver(() => {
+      layout();
+      if (reduced) draw(1200, false);
+    }).observe(canvas);
+
+    new MutationObserver(() => {
+      readPalette();
+      if (reduced) draw(1200, false);
+    }).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+
+    // External motion switches: root[data-mode].
+    new MutationObserver(() => {
+      setMode(root.dataset.mode ?? 'globe');
+    }).observe(root, { attributes: true, attributeFilter: ['data-mode'] });
+
+    window
+      .matchMedia('(prefers-color-scheme: dark)')
+      .addEventListener?.('change', () => {
+        readPalette();
+        if (reduced) draw(1200, false);
+      });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) cancelAnimationFrame(raf);
+      else start();
+    });
+
+    // Hover spin-up is a pill affordance; bare card motifs stay calm.
+    if (!root.hasAttribute('data-bare')) {
+      root.addEventListener('pointerenter', () => {
+        speedTarget = 1.1;
+      });
+      root.addEventListener('pointerleave', () => {
+        speedTarget = 0.24;
+      });
+    }
+
+    // Flavor mode: cycle through the supplied status strings (and, if given,
+    // the aligned motion modes).
+    const statesAttr = root.dataset.states;
+    if (statesAttr && textEl && !reduced) {
+      const states = statesAttr.split('|');
+      const modesAttr = root.dataset.modes;
+      const modes = modesAttr ? modesAttr.split('|') : [];
+      const intervalSec = Number(root.dataset.interval ?? '3');
+      let i = 0;
+      setInterval(() => {
+        textEl.style.opacity = '0';
+        setTimeout(() => {
+          i = (i + 1) % states.length;
+          textEl.textContent = states[i] ?? '';
+          if (modes[i]) setMode(modes[i]!);
+          textEl.style.opacity = '1';
+        }, 300);
+      }, intervalSec * 1000);
+    }
+  };
+
+  document.querySelectorAll<HTMLElement>('[data-orb-status]').forEach(initOrb);
+</script>

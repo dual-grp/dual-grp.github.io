@@ -1,0 +1,41 @@
+---
+import { SITE } from '../data/site';
+import DualIcon from './DualIcon.astro';
+import UsydLogo from './UsydLogo.astro';
+
+const year = new Date().getFullYear();
+---
+
+<footer class="border-t border-line mt-20">
+  <div class="container-x py-12 sm:py-16">
+    <div class="flex flex-col gap-10 sm:flex-row sm:items-start sm:justify-between">
+      <div class="max-w-sm">
+        <DualIcon class="h-8 w-auto text-fg" />
+        <p class="mt-4 font-semibold tracking-tight">DUAL Group</p>
+        <p class="mt-1 text-sm text-muted leading-relaxed">
+          Distributed compUting, optimizAtion, and Learning&nbsp;Group
+        </p>
+        <div class="mt-4 flex items-center gap-5 font-mono text-xs text-muted">
+          <a href={`mailto:${SITE.email}`} class="hover:text-accent transition-colors">Email</a>
+          <a
+            href={`https://github.com/${SITE.githubOrg}`}
+            class="hover:text-accent transition-colors"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            GitHub
+          </a>
+        </div>
+      </div>
+      <div class="sm:text-right">
+        <UsydLogo class="h-9 w-auto text-muted sm:ml-auto" />
+        <p class="mt-3 text-xs text-muted">School of Computer Science</p>
+        <p class="text-xs text-muted">The University of Sydney, NSW 2006</p>
+      </div>
+    </div>
+    <div class="rule mt-10 pt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+      <p class="font-mono text-xs text-muted">&copy; {year} DUAL Group</p>
+      <p class="font-mono text-xs text-muted">33.8886° S / 151.1873° E — Sydney, Australia</p>
+    </div>
+  </div>
+</footer>

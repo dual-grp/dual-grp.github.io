@@ -1,0 +1,180 @@
+---
+import type { CollectionEntry } from 'astro:content';
+
+interface Props {
+  entry: CollectionEntry<'works'>;
+}
+
+const KIND_LABEL = {
+  conference: 'Conference',
+  journal: 'Journal',
+  arxiv: 'arXiv',
+} as const;
+
+const { entry } = Astro.props;
+const { data } = entry;
+
+const imgSrc = data.img ? (data.img.startsWith('/') ? data.img : `/${data.img}`) : undefined;
+const bibtexB64 = data.bibtex ? Buffer.from(data.bibtex.trim(), 'utf8').toString('base64') : '';
+
+const searchText = [data.title, data.authors.join(' '), data.status, KIND_LABEL[data.kind], data.year]
+  .join(' ')
+  .toLowerCase();
+---
+
+<article
+  id={entry.id}
+  data-work-entry
+  data-kind={data.kind}
+  data-hot={data.hot ? 'true' : 'false'}
+  data-search={searchText}
+  class="border-t border-line py-6 scroll-mt-24"
+>
+  <div class="flex gap-5 sm:gap-6">
+    {
+      imgSrc && (
+        <a
+          href={data.url}
+          target={data.url ? '_blank' : undefined}
+          rel={data.url ? 'noopener noreferrer' : undefined}
+          class:list={['card block shrink-0 overflow-hidden w-28 sm:w-36', !data.url && 'pointer-events-none']}
+          tabindex="-1"
+          aria-hidden="true"
+        >
+          <div class="aspect-[4/3] bg-bg-elev">
+            <img
+              src={imgSrc}
+              alt=""
+              loading="lazy"
+              class:list={[
+                'h-full w-full',
+                data.image_fit === 'cover' ? 'object-cover' : 'object-contain p-2',
+              ]}
+            />
+          </div>
+        </a>
+      )
+    }
+
+    <div class="min-w-0 flex-1">
+      <h3 class="font-medium leading-snug">
+        {
+          data.url ? (
+            <a
+              href={data.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hover:text-accent transition-colors"
+            >
+              {data.title}
+            </a>
+          ) : (
+            data.title
+          )
+        }
+      </h3>
+
+      <p class="mt-1.5 text-sm text-muted leading-relaxed">{data.authors.join(', ')}</p>
+
+      <div class="mt-2.5 flex flex-wrap items-center gap-2">
+        <span class="badge">{KIND_LABEL[data.kind]}</span>
+        {
+          data.hot && (
+            <span class="badge" title="Recently published">
+              hot
+            </span>
+          )
+        }
+      </div>
+
+      <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 font-mono text-xs">
+        {
+          data.code && (
+            <a
+              href={data.code}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-accent hover:underline underline-offset-4 decoration-line"
+            >
+              <span class="text-muted">[</span>Code<span class="text-muted">]</span>
+            </a>
+          )
+        }
+        {
+          bibtexB64 && (
+            <button
+              type="button"
+              class="cursor-pointer text-muted hover:text-accent transition-colors"
+              data-bibtex={bibtexB64}
+            >
+              [BibTeX]
+            </button>
+          )
+        }
+      </div>
+
+      <p class="mt-3 font-mono text-xs text-muted">
+        {
+          data.venue_url ? (
+            <a
+              href={data.venue_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="text-accent hover:underline underline-offset-4 decoration-line"
+            >
+              {data.status}
+            </a>
+          ) : (
+            data.status
+          )
+        }
+      </p>
+    </div>
+  </div>
+</article>
+
+<script>
+  // Delegated BibTeX copy. Included once per page no matter how many cards
+  // render; the attribute guard stops a second binding on HMR.
+  if (!document.documentElement.hasAttribute('data-bibtex-bound')) {
+    document.documentElement.setAttribute('data-bibtex-bound', '');
+
+    document.addEventListener('click', async (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const button = target.closest('button[data-bibtex]');
+      if (!(button instanceof HTMLButtonElement)) return;
+
+      const encoded = button.dataset.bibtex;
+      if (!encoded) return;
+
+      let text: string;
+      try {
+        const binary = atob(encoded);
+        const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+        text = new TextDecoder('utf-8').decode(bytes);
+      } catch {
+        return;
+      }
+
+      const original = button.textContent ?? '[BibTeX]';
+      const flashCopied = () => {
+        const previous = button.dataset.copyTimer;
+        if (previous) window.clearTimeout(Number(previous));
+        button.textContent = '[Copied ✓]';
+        const timer = window.setTimeout(() => {
+          button.textContent = original;
+          delete button.dataset.copyTimer;
+        }, 1500);
+        button.dataset.copyTimer = String(timer);
+      };
+
+      try {
+        await navigator.clipboard.writeText(text);
+        flashCopied();
+      } catch {
+        window.prompt('Copy the BibTeX entry:', text);
+      }
+    });
+  }
+</script>

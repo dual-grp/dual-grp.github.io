@@ -1,0 +1,38 @@
+---
+import Base from '../../layouts/Base.astro';
+
+const REDIRECTS: Record<string, string> = {
+  goodspeed: '/research/#goodspeed2025',
+  semcom: '/research/#semcom2025',
+};
+
+export function getStaticPaths() {
+  return ['goodspeed', 'semcom'].map((slug) => ({ params: { slug } }));
+}
+
+const slug = Astro.params.slug ?? '';
+const target = REDIRECTS[slug] ?? '/research/';
+---
+
+<Base title="Research" description="This project now lives on the Research page.">
+  <meta slot="head" http-equiv="refresh" content={`0; url=${target}`} />
+  <div class="container-x py-16 sm:py-24">
+    <header class="max-w-2xl">
+      <p class="flex items-center gap-2.5 kicker">
+        <span class="crosshair" aria-hidden="true"></span>
+        Moved
+      </p>
+      <h1 class="mt-3 text-4xl sm:text-5xl font-semibold tracking-tight">
+        This work now lives on Research.
+      </h1>
+      <p class="mt-5 text-lg text-muted leading-relaxed">
+        Project pages have been folded into the research work index.
+      </p>
+      <p class="mt-8">
+        <a href={target} class="link-arrow">
+          Go to Research <span class="arrow" aria-hidden="true">→</span>
+        </a>
+      </p>
+    </header>
+  </div>
+</Base>

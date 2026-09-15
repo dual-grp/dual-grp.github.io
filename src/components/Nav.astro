@@ -1,0 +1,85 @@
+---
+import { NAV } from '../data/site';
+import ThemeToggle from './ThemeToggle.astro';
+
+const pathname = Astro.url.pathname;
+
+function isActive(href: string): boolean {
+  // Project detail pages live under /projects/ but belong to the Research nav item.
+  if (href === '/research/' && pathname.startsWith('/projects/')) return true;
+  // Member detail pages live under /members/ but belong to the People nav item.
+  if (href === '/people/' && pathname.startsWith('/members/')) return true;
+  return pathname.startsWith(href);
+}
+---
+
+<header class="sticky top-0 z-50 bg-bg/80 backdrop-blur border-b border-line">
+  <nav class="container-x flex items-center justify-between h-14">
+    <a href="/" class="flex items-center gap-2.5" aria-label="DUAL Group home">
+      <span class="font-semibold tracking-tight">DUAL <span class="text-muted font-normal">Group</span></span>
+    </a>
+
+    <div class="hidden md:flex items-center gap-6">
+      {
+        NAV.map((item) => (
+          <a
+            href={item.href}
+            class:list={[
+              'font-mono text-sm transition-colors',
+              isActive(item.href) ? 'text-accent' : 'text-muted hover:text-fg',
+            ]}
+            aria-current={isActive(item.href) ? 'page' : undefined}
+          >
+            {item.label}
+          </a>
+        ))
+      }
+      <ThemeToggle />
+    </div>
+
+    <div class="flex md:hidden items-center gap-4">
+      <ThemeToggle />
+      <button
+        id="nav-toggle"
+        type="button"
+        class="font-mono text-sm text-fg border border-line rounded px-2.5 py-1"
+        aria-expanded="false"
+        aria-controls="nav-panel"
+        aria-label="Toggle navigation"
+      >
+        Menu
+      </button>
+    </div>
+  </nav>
+
+  <div id="nav-panel" class="hidden md:hidden border-t border-line bg-bg">
+    <div class="container-x py-3 flex flex-col gap-1">
+      {
+        NAV.map((item) => (
+          <a
+            href={item.href}
+            class:list={[
+              'font-mono text-sm py-2 transition-colors',
+              isActive(item.href) ? 'text-accent' : 'text-muted hover:text-fg',
+            ]}
+            aria-current={isActive(item.href) ? 'page' : undefined}
+          >
+            {item.label}
+          </a>
+        ))
+      }
+    </div>
+  </div>
+</header>
+
+<script is:inline>
+  (function () {
+    var toggle = document.getElementById('nav-toggle');
+    var panel = document.getElementById('nav-panel');
+    if (!toggle || !panel) return;
+    toggle.addEventListener('click', function () {
+      var open = panel.classList.toggle('hidden') === false;
+      toggle.setAttribute('aria-expanded', String(open));
+    });
+  })();
+</script>

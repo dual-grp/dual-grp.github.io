@@ -1,0 +1,212 @@
+---
+import Base from '../layouts/Base.astro';
+import AsciiHero from '../components/AsciiHero.astro';
+import AustraliaMap from '../components/AustraliaMap.astro';
+import OrbStatus from '../components/OrbStatus.astro';
+import SectionHeading from '../components/SectionHeading.astro';
+import Reveal from '../components/Reveal.astro';
+import { NEWS } from '../data/news';
+
+const THEMES = [
+  {
+    title: 'Efficient AI Systems',
+    mode: 'orbits',
+    description:
+      'Fast and fair large language model decoding across heterogeneous edge resources, including distributed speculative decoding.',
+    sub: ['Efficient LLM · Speculative decoding'],
+  },
+  {
+    title: 'Federated & Edge Learning',
+    mode: 'web',
+    description: 'Collaborative learning that respects resource, privacy, and communication constraints.',
+    sub: ['Federated learning · Edge intelligence'],
+  },
+  {
+    title: 'Network Systems & Optimization',
+    mode: 'globe',
+    description:
+      'Scalable algorithms with robust convergence, and reliable meaning-aware communication under uncertainty.',
+    sub: ['Distributed optimization · Semantic communication'],
+  },
+  {
+    title: 'Generative AI',
+    mode: 'ring',
+    description:
+      'Generative modeling — flow matching, diffusion, and beyond — for dependable real-world use.',
+    sub: ['Flow matching · Diffusion'],
+  },
+];
+
+const recentNews = NEWS.slice(0, 5);
+
+function isExternal(href: string): boolean {
+  return href.startsWith('http');
+}
+---
+
+<Base
+  title="Home"
+  description="The DUAL Group (Distributed compUting, optimizAtion, and Learning) at the School of Computer Science, University of Sydney — efficient and reliable learning systems at the intersection of distributed computing, optimization, and AI."
+>
+  {/* Hero: identity + About DUAL, with the interactive ASCII wordmark */}
+  <section class="border-b border-line" aria-labelledby="home-hero-title">
+    <div class="container-x grid gap-12 py-14 sm:py-16 lg:grid-cols-2 lg:items-center lg:gap-10">
+      <div class="max-w-2xl">
+        <div class="flex flex-wrap items-center gap-x-6 gap-y-4">
+          <img
+            src="/assets/img/branding/dual-hero-lockup.png"
+            alt="DUAL Group logo"
+            width="600"
+            height="328"
+            class="logo-adaptive h-24 sm:h-28 w-auto"
+            fetchpriority="high"
+          />
+          <div class="flex items-center gap-3.5">
+            <AustraliaMap class="h-16 sm:h-20 w-auto shrink-0" />
+            <p
+              class="flex items-center gap-2.5 font-mono text-xs uppercase tracking-[0.18em] text-muted"
+            >
+              <span class="crosshair" aria-hidden="true"></span>
+              <span>Sydney, Australia</span>
+            </p>
+          </div>
+        </div>
+        <h1 id="home-hero-title" class="mt-8 text-4xl sm:text-5xl font-semibold tracking-tight">
+          Distributed intelligence for real&#8209;world systems.
+        </h1>
+        <p class="mt-5 text-lg leading-relaxed">
+          The <span class="text-accent">D</span>istributed comp<span class="text-accent">U</span>ting,
+          optimiz<span class="text-accent">A</span>tion, and <span class="text-accent">L</span>earning
+          (DUAL) Group connects rigorous theory with intelligent systems that can operate at scale.
+        </p>
+        <div class="mt-8 flex flex-wrap items-center gap-3">
+          <OrbStatus
+            plain
+            states={[
+              'Solving…',
+              'Optimizing…',
+              'Distributing…',
+              'Decoding…',
+              'Learning…',
+            ]}
+            modes={['globe', 'orbits', 'web', 'globe', 'ring']}
+          />
+          <div class="flex flex-wrap items-center gap-3">
+            <a href="/research/" class="btn-primary">Explore research</a>
+            <a href="/people/" class="btn-ghost">Meet the team</a>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="relative h-64 sm:h-72 lg:h-80">
+          <AsciiHero />
+        </div>
+        <p
+          class="mt-4 max-w-[34rem] font-serif text-base italic leading-relaxed text-muted lg:ml-auto lg:text-right"
+        >
+          We study resource-constrained environments where communication, compute, fairness, and
+          reliability matter just as much as model accuracy.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <div class="container-x">
+    {/* Research themes */}
+    <section class="py-16 sm:py-20">
+      <SectionHeading kicker="Research themes" title="Building dependable intelligence, together." />
+      <Reveal>
+        <div class="grid gap-4 sm:grid-cols-2">
+          {
+            THEMES.map((theme) => (
+              <article class="card group relative p-6 transition-colors hover:border-accent">
+                <OrbStatus bare mode={theme.mode} class="absolute right-5 top-5 h-16 w-16" />
+                <span class="crosshair" aria-hidden="true"></span>
+                <h3 class="mt-4 pr-16 text-lg font-semibold tracking-tight">{theme.title}</h3>
+                <p class="mt-2 text-sm text-muted leading-relaxed">{theme.description}</p>
+                <p class="mt-4 border-t border-line pt-3 font-mono text-xs text-muted">
+                  {theme.sub.join(' · ')}
+                </p>
+              </article>
+            ))
+          }
+        </div>
+      </Reveal>
+    </section>
+
+    {/* News */}
+    <section class="py-16 sm:py-20 border-t border-line">
+      <SectionHeading kicker="News" title="Signals from the lab." />
+      <Reveal>
+        <ul class="divide-y divide-line border-y border-line">
+          {
+            recentNews.map((item) => (
+              <li>
+                {item.href ? (
+                  <a
+                    href={item.href}
+                    class="group flex flex-col gap-2 py-5 sm:flex-row sm:items-baseline sm:gap-6"
+                    target={isExternal(item.href) ? '_blank' : undefined}
+                    rel={isExternal(item.href) ? 'noopener noreferrer' : undefined}
+                  >
+                    <span class="shrink-0 font-mono text-sm text-muted sm:w-20">{item.date}</span>
+                    <span class="badge shrink-0 self-start sm:self-auto">{item.tag}</span>
+                    <span class="flex-1 font-medium leading-snug transition-colors group-hover:text-accent">
+                      {item.title}
+                    </span>
+                    <span
+                      class="shrink-0 font-mono text-sm text-accent transition-transform group-hover:translate-x-1"
+                      aria-hidden="true"
+                    >
+                      {isExternal(item.href) ? '↗' : '→'}
+                    </span>
+                  </a>
+                ) : (
+                  <div class="flex flex-col gap-2 py-5 sm:flex-row sm:items-baseline sm:gap-6">
+                    <span class="shrink-0 font-mono text-sm text-muted sm:w-20">{item.date}</span>
+                    <span class="badge shrink-0 self-start sm:self-auto">{item.tag}</span>
+                    <span class="flex-1 font-medium leading-snug">{item.title}</span>
+                  </div>
+                )}
+              </li>
+            ))
+          }
+        </ul>
+        <p class="mt-8">
+          <a class="link-arrow" href="/research/">
+            Browse all work <span class="arrow" aria-hidden="true">→</span>
+          </a>
+        </p>
+      </Reveal>
+    </section>
+
+    {/* People & collaboration */}
+    <section class="py-16 sm:py-20 border-t border-line">
+      <SectionHeading kicker="People & collaboration" title="Curious minds are welcome." />
+      <Reveal>
+        <div class="flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
+          <p class="max-w-xl leading-relaxed text-muted">
+            DUAL brings together researchers and students across machine learning, distributed systems,
+            optimization, and edge intelligence.
+          </p>
+          <div class="flex flex-wrap gap-3">
+            <a class="btn-primary" href="/people/">Meet the team</a>
+            <a class="btn-ghost" href="/contact/">Contact us</a>
+          </div>
+        </div>
+        <figure class="card mt-10 overflow-hidden">
+          <img
+            src="/assets/img/lab/group_lunch.jpg"
+            alt="DUAL Group members gathered outdoors for a group lunch"
+            loading="lazy"
+            decoding="async"
+            class="w-full h-auto"
+          />
+          <figcaption class="border-t border-line px-4 py-3 font-mono text-xs text-muted">
+            <span class="text-accent">FIG. 01</span> / Group lunch with the DUAL team
+          </figcaption>
+        </figure>
+      </Reveal>
+    </section>
+  </div>
+</Base>

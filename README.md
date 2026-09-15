@@ -1,44 +1,46 @@
 # DUAL Group Website
 
-This repository contains the website for the Distributed compUting, optimizAtion, and Learning (DUAL) Group at the University of Sydney.
+Website of the **D**istributed comp**U**ting, optimiz**A**tion, and **L**earning (DUAL) Group at the School of Computer Science, University of Sydney.
 
-The site is built with Jekyll and the al-folio theme runtime, with content managed through Markdown, BibTeX, and YAML data files.
+**Production:** https://dual-grp.github.io
 
-## Main Content
+## Stack
 
-- Home: `_pages/about.md`
-- Research and publications: `_pages/publications.md` and `_bibliography/papers.bib`
-- Projects: `_pages/projects.md` and `_projects/`
-- People: `_pages/profiles.md` and `_members/`
-- Contact: `_pages/contact.md`
-- Images: `assets/img/`
+- [Astro 5](https://astro.build) — static site generator with Content Collections
+- [Tailwind CSS 4](https://tailwindcss.com) — via `@tailwindcss/vite`, design tokens in `src/styles/global.css`
+- [Space Grotesk](https://fonts.google.com/specimen/Space+Grotesk) + [JetBrains Mono](https://www.jetbrains.com/mono/) — self-hosted via `@fontsource`
+- nginx — static file serving in Docker, mirroring the GitHub Pages production setup
 
-## Local Preview
+## Quickstart
 
-The recommended local workflow uses Docker:
+Requires Node.js 20+.
 
 ```bash
-docker compose pull
-docker compose up
+npm install
+npm run dev       # dev server → http://localhost:4321
+npm run build     # production build → dist/
 ```
 
-Then open `http://localhost:8080`.
+Type and content validation: `npx astro check`.
+
+## Docker
+
+Production-faithful local serve (multi-stage build → nginx, no bind mounts):
+
+```bash
+docker compose up --build
+```
+
+Then open http://localhost:8080.
+
+## Content
+
+- Members: `src/content/members/<slug>.md`
+- Research work: `src/content/works/<slug>.md`
+- Site-wide data (nav, emails, news): `src/data/`
+
+See [AGENTS.md](AGENTS.md) for the full content-maintenance guide.
 
 ## Deployment
 
-The default deployment target is GitHub Pages:
-
-```text
-https://dual-grp.github.io
-```
-
-For this root-domain deployment, `_config.yml` should use:
-
-```yaml
-url: https://dual-grp.github.io
-baseurl:
-```
-
-This requires publishing the site as the DUAL Group organization site, usually from a repository named `dual-grp.github.io`.
-
-The future preferred institutional domain is `dual.sydney.edu.au`, pending University of Sydney DNS approval and configuration.
+GitHub Pages via `.github/workflows/deploy.yml` (official Astro action): a push to `main` builds the site and publishes `dist/`.

@@ -1,0 +1,61 @@
+---
+interface Props {
+  class?: string;
+}
+
+const { class: className } = Astro.props;
+
+// Simplified Australia outline in a lon/lat-derived viewBox (113–154°E, 10–39°S
+// → x 0–100, y 3–87; Tasmania below). The accent dot marks Sydney on the
+// southeast coast with a soft radar pulse.
+---
+
+<svg viewBox="0 0 100 104" fill="none" class:list={['text-muted', className]} aria-hidden="true">
+  <path
+    class="coast"
+    d="M72 2 L78 14 L80 22 L81 29 L88 32 L91.5 41 L96 46 L97.6 54 L98.8 57 L97 66 L93.2 72 L90 78 L89.9 82 L85 86 L81.4 88 L77.8 86 L70 84 L63 77 L55 74 L43.9 69 L33 71 L21.7 72 L12 75 L4.9 73 L7.1 69 L3.9 55 L2.7 37 L6 31 L13.7 32 L22.5 25 L31.7 12 L43.4 8 L50 7 L57.8 8 L62 15 L64 23 L68 24 L69.5 10 Z"
+  ></path>
+  <path class="coast" d="M78 93 L84 93 L85 98 L79 100 Z"></path>
+  <circle cx="93.2" cy="72" r="3.4" fill="var(--accent)"></circle>
+  <circle cx="93.2" cy="72" r="3.4" stroke="var(--accent)" class="map-pulse"></circle>
+</svg>
+
+<style>
+  /* The coast is a hairline in *device* pixels rather than in user units: the
+     outline is only ~1px at the size this used to render at, and letting the
+     stroke scale with the shape would thicken it into a heavy band as soon as
+     the map is drawn large enough for Cape York and Tasmania to read. */
+  .coast {
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+  }
+
+  .map-pulse {
+    stroke-width: 1.1;
+    vector-effect: non-scaling-stroke;
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: map-pulse 2.6s ease-out infinite;
+  }
+
+  @keyframes map-pulse {
+    0% {
+      transform: scale(1);
+      opacity: 0.8;
+    }
+    70%,
+    100% {
+      transform: scale(3.2);
+      opacity: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .map-pulse {
+      animation: none;
+      opacity: 0;
+    }
+  }
+</style>

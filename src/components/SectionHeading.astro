@@ -1,0 +1,23 @@
+---
+import Reveal from './Reveal.astro';
+
+interface Props {
+  kicker: string;
+  title: string;
+  lead?: string;
+}
+
+const { kicker, title, lead } = Astro.props;
+---
+
+<Reveal>
+  <div class="mb-10">
+    <div class="flex items-center gap-3">
+      <span class="crosshair" aria-hidden="true"></span>
+      <span class="kicker">{kicker}</span>
+      <span class="h-px flex-1 bg-line" aria-hidden="true"></span>
+    </div>
+    <h2 class="mt-5 text-3xl sm:text-4xl font-semibold tracking-tight">{title}</h2>
+    {lead && <p class="mt-4 text-muted max-w-2xl leading-relaxed">{lead}</p>}
+  </div>
+</Reveal>

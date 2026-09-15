@@ -1,0 +1,1259 @@
+---
+interface Props {
+  class?: string;
+}
+
+const { class: className } = Astro.props;
+
+// Static <noscript> wordmark: plain '#'-block letters, monochrome.
+const FALLBACK_ART = [
+  '####   #   #   ###   #',
+  '#   #  #   #  #   #  #',
+  '#   #  #   #  #####  #',
+  '#   #  #   #  #   #  #',
+  '####    ###   #   #  #####',
+].join('\n');
+---
+
+<div
+  class:list={['relative h-full w-full min-h-[14rem] cursor-pointer overflow-hidden', className]}
+  role="button"
+  tabindex="0"
+  aria-label="Generate the DUAL ASCII sequence"
+  data-ascii-hero
+>
+  <canvas class="absolute inset-0 h-full w-full" aria-hidden="true"></canvas>
+  {/* Hidden via the attribute, not a `hidden` utility class: the script reveals
+      it with `el.hidden = false`, which a class of the same name would outrank. */}
+  {/* Top-left, not bottom-left: every frame keeps its first two rows clear,
+      whereas the bottom edge carries node labels and the k axis. */}
+  <span
+    class="absolute top-2 left-3 font-mono text-[10px] uppercase tracking-[0.14em] text-muted opacity-80 select-none pointer-events-none"
+    hidden
+    data-ascii-phase></span>
+  <noscript>
+    <pre
+      class="absolute inset-0 m-0 grid place-items-center overflow-hidden font-mono text-[10px] leading-snug text-muted"
+      aria-hidden="true">{FALLBACK_ART}</pre>
+  </noscript>
+</div>
+
+<script>
+  // Interactive ASCII hero. Boots as a Gaussian-noise field; each click runs a
+  // diffusion-style generation that resolves into the next motif of the group's
+  // name — distributed computing (node topology) → optimization (convergence
+  // plot) → learning (sparse network) → the DUAL wordmark, then loops.
+  //
+  // The art is composed as literal character grids, not as vector shapes
+  // downsampled into a density ramp: at hero resolution (~90×18 cells) a
+  // rasterized outline dithers into blobs, whereas a box-drawing glyph is a
+  // pin-sharp hairline at every size. Cell metrics are measured from the font's
+  // own box-drawing ink so '│' and '─' tile seamlessly into continuous rules.
+  //
+  // Deep-link/debug: ?ascii=<frame> boots straight into that formed frame.
+  // Engineering patterns: seeded PRNG, palette via getComputedStyle, data-theme
+  // MutationObserver, DPR-aware canvas (capped at 2), ResizeObserver relayout,
+  // rAF paused while document.hidden. Strictly monochrome: --muted/--fg only.
+
+  const WORD = 'DUAL';
+  // Glyphs cycled while a cell is still being sampled.
+  const SCRAMBLE = '<>/\\=+-?!01';
+  // Idle life is confined to the status marks, which pulse through dimmer
+  // variants of themselves. Scrambling a random glyph into hairline linework
+  // reads as a rendering defect, not as life.
+  const PULSE = '○◦·';
+  const PULSE_HOSTS = '●○';
+  // Hairlines a travelling pulse may briefly stand in for with a packet, and
+  // the pulse intensity at which it does so.
+  const PACKET_HOSTS = '─│┄┈';
+  const PACKET_AT = 0.66;
+  // Idle shimmer: small enough to read as the drawing breathing rather than as
+  // noise creeping back into it.
+  const SHIM_AMP = 0.06;
+  const SHIM_W = 0.0019;
+  // Faint glyphs revealed in empty space inside the cursor halo.
+  const LATENT = '·.:01+';
+  // Idle call to action. A field of noise gives the viewer nothing to act on,
+  // so it has to be said — but said the way a terminal would, as lowercase
+  // letterspaced type behind a blinking caret, rather than as a button.
+  const HINT = 'click to generate';
+  // Below this width letterspacing no longer fits and the hint sets solid.
+  const HINT_TRACK_COLS = 46;
+  const CARET_MS = 1100;
+  // Cursor halo radius, in grid cells.
+  const HALO_R = 12;
+  // Brightness lookup-table size (muted → fg).
+  const LUT_N = 64;
+
+  // Grid sizing. The hero is a wide, shallow strip, so rows are the scarce
+  // axis: pick the type size from a row budget, then guarantee a minimum
+  // column count so narrow viewports still get a composable canvas.
+  const TARGET_ROWS = 18;
+  const MIN_COLS = 56;
+  // Fallback cell metrics (× font size) if box-drawing ink can't be measured.
+  const EM_ADVANCE = 0.602;
+  const EM_CELL_H = 1.2745;
+  const EM_BASELINE = 0.9728;
+
+  const R = Math.round;
+  const clampI = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
+
+  // Deterministic PRNG (same mulberry32 as NetworkHero) for composed idle life.
+  const mulberry32 = (seed: number) => () => {
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+
+  const hexToRgb = (hex: string): [number, number, number] | null => {
+    const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex.trim());
+    if (!m) return null;
+    let s = m[1] ?? '';
+    if (s.length === 3)
+      s = s
+        .split('')
+        .map((c) => c + c)
+        .join('');
+    const n = parseInt(s, 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  };
+
+  // --- Character-grid drawing kit ------------------------------------------
+  // Box-drawing pieces are tracked per cell as a 4-bit mask (up/right/down/
+  // left) and OR-merged on overlap, so junctions resolve themselves: a stub
+  // arriving at a box edge becomes '┬' without the painter asking for it.
+  const UP = 1;
+  const RT = 2;
+  const DN = 4;
+  const LF = 8;
+  const BOX: Record<number, string> = {
+    1: '│',
+    2: '─',
+    3: '└',
+    4: '│',
+    5: '│',
+    6: '┌',
+    7: '├',
+    8: '─',
+    9: '┘',
+    10: '─',
+    11: '┴',
+    12: '┐',
+    13: '┤',
+    14: '┬',
+    15: '┼',
+  };
+  // Softer corners for enclosures, echoing the rounded rects in the logo.
+  const ROUND: Record<number, string> = { 3: '╰', 6: '╭', 9: '╯', 12: '╮' };
+
+  /**
+   * A pulse that travels along a wire while the frame is on screen. `cells` is
+   * the traversal order; `from`/`to` are positions in the frame's animation
+   * cycle (0..1), so several flows can be choreographed against each other —
+   * a request before its reply, a forward pass before its gradient.
+   */
+  type Flow = {
+    cells: number[];
+    from: number;
+    to: number;
+    /** Trail length in cells: the pulse fades out behind its head. */
+    trail: number;
+    gain: number;
+  };
+
+  type Grid = {
+    cols: number;
+    rows: number;
+    /** cellH / cellW — one row is ≈2.1 columns, so slopes need correcting. */
+    aspect: number;
+    ch: string[];
+    wt: Float32Array;
+    solid: Uint8Array;
+    mask: Uint8Array;
+    /** Length of one loop of this frame's flow choreography, in ms. */
+    cycleMs: number;
+    flows: Flow[];
+    idx: (x: number, y: number) => number;
+    /** Walks an orthogonal polyline and returns the cells it visits, in order. */
+    route: (pts: [number, number][]) => number[];
+    flow: (cells: number[], from: number, to: number, trail?: number, gain?: number) => void;
+    put: (x: number, y: number, c: string, w: number, solid?: boolean) => void;
+    text: (x: number, y: number, s: string, w: number) => void;
+    stroke: (x: number, y: number, bits: number, w: number, round?: boolean) => void;
+    hline: (y: number, x0: number, x1: number, w: number, c?: string) => void;
+    vline: (x: number, y0: number, y1: number, w: number, c?: string) => void;
+    box: (x: number, y: number, bw: number, bh: number, w: number, round?: boolean) => void;
+    edge: (x0: number, y0: number, x1: number, y1: number, w: number) => void;
+  };
+
+  const makeGrid = (cols: number, rows: number, aspect: number): Grid => {
+    const n = cols * rows;
+    const g: Grid = {
+      cols,
+      rows,
+      aspect,
+      ch: new Array<string>(n).fill(''),
+      wt: new Float32Array(n),
+      solid: new Uint8Array(n),
+      mask: new Uint8Array(n),
+      cycleMs: 2800,
+      flows: [],
+      idx: () => -1,
+      route: () => [],
+      flow: () => {},
+      put: () => {},
+      text: () => {},
+      stroke: () => {},
+      hline: () => {},
+      vline: () => {},
+      box: () => {},
+      edge: () => {},
+    };
+
+    const at = (x: number, y: number) => {
+      x = R(x);
+      y = R(y);
+      if (x < 0 || y < 0 || x >= cols || y >= rows) return -1;
+      return y * cols + x;
+    };
+    g.idx = at;
+
+    // Painters hand `route` the same waypoints they drew the wire from, and get
+    // back the order a pulse should light it up in — so the animation can never
+    // drift away from the geometry it is supposed to be travelling along.
+    g.route = (pts) => {
+      const out: number[] = [];
+      const push = (x: number, y: number) => {
+        const i = at(x, y);
+        if (i >= 0 && out[out.length - 1] !== i) out.push(i);
+      };
+      if (pts.length === 1) push(pts[0][0], pts[0][1]);
+      for (let k = 0; k < pts.length - 1; k++) {
+        let x = R(pts[k][0]);
+        let y = R(pts[k][1]);
+        const tx2 = R(pts[k + 1][0]);
+        const ty2 = R(pts[k + 1][1]);
+        push(x, y);
+        const sx = Math.sign(tx2 - x);
+        const sy = Math.sign(ty2 - y);
+        while (x !== tx2) push((x += sx), y);
+        while (y !== ty2) push(x, (y += sy));
+      }
+      return out;
+    };
+
+    g.flow = (cells, from, to, trail = 5, gain = 1) => {
+      if (cells.length > 1) g.flows.push({ cells, from, to, trail, gain });
+    };
+
+    g.put = (x, y, c, w, solid = false) => {
+      const i = at(x, y);
+      if (i < 0) return;
+      g.ch[i] = c;
+      g.wt[i] = w;
+      g.mask[i] = 0;
+      g.solid[i] = solid ? 1 : 0;
+    };
+
+    g.text = (x, y, s, w) => {
+      for (let k = 0; k < s.length; k++) {
+        const c = s[k];
+        if (c !== ' ') g.put(x + k, y, c, w);
+      }
+    };
+
+    g.stroke = (x, y, bits, w, round = false) => {
+      const i = at(x, y);
+      if (i < 0) return;
+      const m = (g.mask[i] | bits) & 15;
+      g.mask[i] = m;
+      g.ch[i] = (round ? ROUND[m] : undefined) ?? BOX[m] ?? '·';
+      g.wt[i] = Math.max(g.wt[i], w);
+      g.solid[i] = 0;
+    };
+
+    g.hline = (y, x0, x1, w, c) => {
+      for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) {
+        if (c) g.put(x, y, c, w);
+        else g.stroke(x, y, LF | RT, w);
+      }
+    };
+
+    g.vline = (x, y0, y1, w, c) => {
+      for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) {
+        if (c) g.put(x, y, c, w);
+        else g.stroke(x, y, UP | DN, w);
+      }
+    };
+
+    g.box = (x, y, bw, bh, w, round = false) => {
+      for (let i = 1; i < bw - 1; i++) {
+        g.stroke(x + i, y, LF | RT, w, round);
+        g.stroke(x + i, y + bh - 1, LF | RT, w, round);
+      }
+      for (let j = 1; j < bh - 1; j++) {
+        g.stroke(x, y + j, UP | DN, w, round);
+        g.stroke(x + bw - 1, y + j, UP | DN, w, round);
+      }
+      g.stroke(x, y, RT | DN, w, round);
+      g.stroke(x + bw - 1, y, LF | DN, w, round);
+      g.stroke(x, y + bh - 1, RT | UP, w, round);
+      g.stroke(x + bw - 1, y + bh - 1, LF | UP, w, round);
+    };
+
+    // Slope-aware connector: picks '─', '╱', '╲' or '│' from the *visual*
+    // gradient (cell aspect applied), and bridges multi-row steps so the run
+    // never breaks into dots. Heavier lines win over lighter ones already in
+    // place; equal-or-heavier neighbours are only nudged brighter, so dense
+    // crossing regions glow slightly — free depth.
+    g.edge = (x0, y0, x1, y1, w) => {
+      const dx = x1 - x0;
+      const dy = y1 - y0;
+      const steps = Math.max(1, Math.abs(dx));
+      const slope = Math.abs((dy * aspect) / (dx || 1));
+      const diag = dy === 0 ? '─' : dy > 0 ? '╲' : '╱';
+      let prev = R(y0);
+      for (let s = 0; s <= steps; s++) {
+        const x = x0 + (dx * s) / steps;
+        const y = R(y0 + (dy * s) / steps);
+        const lo = Math.min(prev, y);
+        const hi = Math.max(prev, y);
+        for (let yy = lo; yy <= hi; yy++) {
+          const i = at(x, yy);
+          if (i < 0) continue;
+          if (g.ch[i] !== '' && g.wt[i] >= w) {
+            g.wt[i] = Math.min(1, g.wt[i] + 0.06);
+            continue;
+          }
+          const c =
+            lo === hi ? (slope < 0.6 ? '─' : diag) : hi - lo >= 2 && yy > lo && yy < hi ? '│' : diag;
+          g.put(x, yy, c, w);
+        }
+        prev = y;
+      }
+    };
+
+    return g;
+  };
+
+  // --- The four generation frames -----------------------------------------
+  type FrameName = 'distributed' | 'optimization' | 'learning' | 'dual';
+  const FRAME_ORDER: FrameName[] = ['distributed', 'optimization', 'learning', 'dual'];
+  const FRAME_LABEL: Record<FrameName, string> = {
+    distributed: 'distributed',
+    optimization: 'optimization',
+    learning: 'learning',
+    dual: 'DUAL',
+  };
+  type Painter = (g: Grid) => void;
+
+  // Weight → brightness (muted → fg). Structure stays quiet; only the few
+  // marks that carry meaning are allowed to reach full contrast.
+  const W_HAIR = 0.2;
+  const W_LINK = 0.34;
+  const W_LABEL = 0.36;
+  const W_RULE = 0.52;
+  const W_FRAME = 0.62;
+  const W_MARK = 1;
+
+  // Frame 1 — distributed computing: a coordinator over three worker nodes,
+  // linked by an orthogonal bus, with dashed peer links along the bottom tier.
+  const paintDistributed: Painter = (g) => {
+    const bw = clampI(R(g.cols * 0.15) | 1, 11, 17); // odd → the stub centres
+    const bh = 3;
+    const half = bw >> 1;
+    const topY = clampI(R(g.rows * 0.16), 2, 3);
+    const workY = g.rows - bh - clampI(R(g.rows * 0.17), 2, 4);
+    const busY = R((topY + bh + workY) / 2);
+    const marginX = clampI(R(g.cols * 0.06), 2, 8);
+
+    // A node: rounded chassis, stacked rack rules, a dotted activity trail,
+    // and one status mark — the only thing inside allowed full contrast.
+    const node = (x: number, y: number, id: string, above: boolean) => {
+      g.box(x, y, bw, bh, W_FRAME, true);
+      g.text(x + 2, y + 1, '≡≡≡', W_RULE);
+      for (let d = x + 6; d < x + bw - 3; d += 2) g.put(d, y + 1, '·', W_HAIR);
+      g.put(x + bw - 3, y + 1, '●', W_MARK);
+      g.text(x + R((bw - id.length) / 2), above ? y - 2 : y + bh + 1, id, W_LABEL);
+    };
+
+    // Positions are mirrored around the centre column so both spans are
+    // exactly equal — rounding an evenly divided range is not symmetric.
+    const cx = (g.cols - 1) >> 1;
+    const reach = Math.floor((g.cols - 2 * marginX - bw) / 2);
+    const xs = [cx - reach, cx, cx + reach];
+    node(cx - half, topY, 'node·00', true);
+    xs.forEach((x, i) => node(x - half, workY, `node·0${i + 1}`, false));
+
+    // Bus: trunk down from the coordinator, spine across, stub into each
+    // worker. Stubs are punched into the chassis edges as single direction
+    // bits, so mask merging resolves them to '┬' and '┴' by itself.
+    g.stroke(cx, topY + bh - 1, DN, W_LINK);
+    g.vline(cx, topY + bh, busY - 1, W_LINK);
+    g.hline(busY, xs[0] + 1, xs[2] - 1, W_LINK);
+    g.stroke(xs[0], busY, RT | DN, W_LINK, true);
+    g.stroke(xs[2], busY, LF | DN, W_LINK, true);
+    g.stroke(cx, busY, UP | DN, W_LINK);
+    xs.forEach((x) => {
+      g.vline(x, busY + 1, workY - 1, W_LINK);
+      g.stroke(x, workY, UP, W_LINK);
+    });
+
+    // Peer links: dashed, faint — hierarchy plus gossip, not one or the other.
+    const midY = workY + 1;
+    const peers: Array<[number, number]> = [];
+    for (let i = 0; i < 2; i++) {
+      const a = xs[i] + half;
+      const b = xs[i + 1] - half;
+      g.stroke(a, midY, RT, W_LINK);
+      g.stroke(b, midY, LF, W_LINK);
+      for (let x = a + 1; x < b; x++) g.put(x, midY, '┄', W_HAIR);
+      peers.push([a, b]);
+    }
+
+    // Traffic: the coordinator fans work out to each worker in turn, then the
+    // bottom tier gossips among itself. The topology and the load it carries
+    // are the same drawing, a second apart.
+    g.cycleMs = 2600;
+    xs.forEach((x, i) => {
+      const wire: Array<[number, number]> = [
+        [cx, topY + bh - 1],
+        [cx, busY],
+        [x, busY],
+        [x, workY],
+      ];
+      g.flow(g.route(wire), 0.02 + i * 0.1, 0.44 + i * 0.1, 7);
+    });
+    peers.forEach(([a, b], i) => {
+      g.flow(g.route([[a, midY], [b, midY]]), 0.6 + i * 0.09, 0.88 + i * 0.09, 4, 0.8);
+    });
+  };
+
+  // Frame 2 — optimization: a coordinate frame carrying the descent of an
+  // objective. The sequence is discrete, so it is drawn as it really is — a
+  // staircase of iterates, each drop geometrically smaller than the last,
+  // flattening onto f*. Rendered in pure box-drawing rather than diagonals:
+  // at eighteen rows a sampled curve dithers, a staircase never does.
+  const paintOptimization: Painter = (g) => {
+    const ox = clampI(R(g.cols * 0.09), 4, 8);
+    const xr = g.cols - clampI(R(g.cols * 0.06), 3, 6);
+    const top = clampI(R(g.rows * 0.12), 2, 3);
+    const oy = g.rows - clampI(R(g.rows * 0.17), 2, 3);
+
+    // Coordinate frame: L-shaped axes with arrowheads.
+    g.hline(oy, ox + 1, xr, W_RULE);
+    g.vline(ox, top + 1, oy - 1, W_RULE);
+    g.stroke(ox, oy, UP | RT, W_RULE);
+    g.put(ox, top, '▲', W_RULE);
+    g.put(xr + 1, oy, '▶', W_RULE);
+    g.text(ox + 2, top, 'f(x)', W_LABEL);
+    g.text(xr - 1, oy + 2, 'k', W_LABEL);
+
+    // f_k = f* + (f_0 − f*)·ρᵏ, laid out on evenly spaced iterations.
+    const FLOOR = 0.1;
+    const RHO = 0.58;
+    const yOf = (v: number) => R(top + 1 + (1 - v) * (oy - 2 - top));
+    const n = clampI(Math.floor((xr - ox - 3) / 6), 5, 9);
+    const dx = Math.floor((xr - ox - 3) / n);
+    const pts = Array.from({ length: n + 1 }, (_, k): [number, number] => [
+      ox + 2 + k * dx,
+      yOf(FLOOR + (1 - FLOOR) * Math.pow(RHO, k)),
+    ]);
+
+    // Staircase: hold f_k, then drop. Corners are placed explicitly so each
+    // turn is a rounded elbow instead of a crossing.
+    for (let k = 0; k < n; k++) {
+      const [x0, y0] = pts[k];
+      const [x1, y1] = pts[k + 1];
+      g.hline(y0, x0, x1 - 1, W_RULE);
+      if (y1 > y0) {
+        g.stroke(x1, y0, LF | DN, W_RULE, true);
+        if (y1 - 1 >= y0 + 1) g.vline(x1, y0 + 1, y1 - 1, W_RULE);
+        g.stroke(x1, y1, UP | RT, W_RULE, true);
+      } else {
+        g.stroke(x1, y0, LF | RT, W_RULE);
+      }
+    }
+    // Final plateau runs out to the frame edge.
+    g.hline(pts[n][1], pts[n][0] + 1, xr - 1, W_RULE);
+
+    // Iteration ticks on the axis, and f* called out where the descent settles.
+    for (const [x] of pts) g.stroke(x, oy, DN, W_HAIR);
+    const yStar = yOf(FLOOR);
+    g.stroke(ox, yStar, LF, W_HAIR);
+    g.text(ox - 3, yStar, 'f*', W_LABEL);
+
+    // The iterates themselves — the only marks at full contrast.
+    for (const [x, y] of pts) g.put(x, y, '●', W_MARK);
+
+    // The rate the staircase is drawing, stated in the space it leaves empty.
+    const rate = '|f_k - f*| <= C·r^k';
+    if (xr - rate.length > pts[1][0] + 2) g.text(xr - rate.length, top + 2, rate, W_LABEL);
+
+    // Run the descent instead of only plotting it: one pulse walks the
+    // staircase, lighting each iterate as it arrives and slowing to nothing on
+    // the plateau — the shape of the convergence, told in time as well as space.
+    g.cycleMs = 3000;
+    const walk: Array<[number, number]> = [[pts[0][0], pts[0][1]]];
+    for (let k = 0; k < n; k++) {
+      walk.push([pts[k + 1][0], pts[k][1]]);
+      walk.push([pts[k + 1][0], pts[k + 1][1]]);
+    }
+    walk.push([xr - 1, pts[n][1]]);
+    g.flow(g.route(walk), 0.06, 0.84, 9);
+  };
+
+  // Frame 3 — learning: layers of units on a forward pass, with the gradient
+  // returning underneath to every layer it has to correct. Drawn as a chain of
+  // narrow stacks rather than a fully wired graph: at this resolution a dense
+  // mesh of diagonals collapses into spaghetti, and the loop back from the loss
+  // is the part that actually says *learning* rather than inference.
+  const paintLearning: Painter = (g) => {
+    const n = g.cols >= 80 ? 4 : 3;
+    const units = 3;
+    const bw = 5;
+    const bh = units + 2;
+    const marginX = clampI(R(g.cols * 0.05), 2, 6);
+    // Arrow runs absorb the slack so the chain spans the plate at any width.
+    const arrow = clampI(Math.floor((g.cols - 2 * marginX - 4 - n * bw) / (n + 1)), 3, 10);
+    const total = 4 + n * bw + (n + 1) * arrow;
+
+    const labelY = R((g.rows - (bh + 7)) / 2);
+    const by = labelY + 2;
+    const cy = by + ((bh - 1) >> 1);
+    const busY = by + bh + 2;
+
+    // Forward pass: x → layers → loss, each hop leaving the previous chassis
+    // through an explicit '├' so the chain is visibly continuous.
+    const run = (x: number, y: number) => {
+      g.hline(y, x, x + arrow - 2, W_LINK);
+      g.put(x + arrow - 1, y, '▶', W_LINK);
+    };
+    let x = R((g.cols - total) / 2);
+    const xStart = x;
+    g.put(x, cy, 'x', W_RULE);
+    x += 2;
+    const stems: number[] = [];
+    for (let l = 0; l < n; l++) {
+      run(x, cy);
+      x += arrow;
+      g.box(x, by, bw, bh, W_FRAME, true);
+      for (let u = 0; u < units; u++) g.put(x + (bw >> 1), by + 1 + u, '●', W_MARK);
+      g.text(x + 1, labelY, `W${l + 1}`, W_LABEL);
+      stems.push(x + (bw >> 1));
+      x += bw;
+      g.stroke(x - 1, cy, RT, W_LINK);
+    }
+    run(x, cy);
+    x += arrow + 1;
+    g.put(x, cy, 'L', W_MARK);
+
+    // Backward pass: down from the loss, back along the plate, up into every
+    // layer. Mask merging turns each arrival into a '┴' on the chassis floor.
+    g.vline(x, cy + 1, busY - 1, W_LINK);
+    g.stroke(x, busY, UP | LF, W_LINK, true);
+    g.hline(busY, stems[0] - arrow + 1, x - 1, W_LINK);
+    g.put(stems[0] - arrow, busY, '◀', W_LINK);
+    for (const s of stems) {
+      g.vline(s, by + bh, busY - 1, W_LINK);
+      g.stroke(s, by + bh - 1, DN, W_LINK);
+      g.stroke(s, busY, UP, W_LINK);
+    }
+    g.text(stems[0] - arrow + 2, busY + 2, '∇L', W_LABEL);
+
+    // One training step, played out: activations sweep forward into the loss,
+    // then the gradient runs back along the bus and climbs into each layer as
+    // it passes underneath — right to left, which is the order it is computed.
+    g.cycleMs = 3200;
+    g.flow(g.route([[xStart, cy], [x, cy]]), 0.04, 0.46, 7);
+    const back = g.route([
+      [x, cy],
+      [x, busY],
+      [stems[0] - arrow, busY],
+    ]);
+    g.flow(back, 0.52, 0.94, 7);
+    for (const s of stems) {
+      const j = back.indexOf(g.idx(s, busY));
+      if (j < 0) continue;
+      const t = 0.52 + (j / (back.length - 1)) * 0.42;
+      g.flow(g.route([[s, busY], [s, by + bh - 1]]), t, t + 0.09, 4, 0.9);
+    }
+  };
+
+  // Frame 4 — the wordmark. A seven-row bitmap face, drawn by hand: an outline
+  // font downsampled to this many rows loses its counters and the letters close
+  // up into slabs, whereas a bitmap letterform is authored around the grid it
+  // has to live on. Stems are two columns wide because a cell is roughly half
+  // as wide as it is tall, so two columns reads as one even stroke. Cells are
+  // painted as filled rects, making the letterforms seamless.
+  const GLYPH_W = 11;
+  const GLYPH_H = 7;
+  const FACE: Record<string, string[]> = {
+    D: [
+      '#########..',
+      '##......##.',
+      '##.......##',
+      '##.......##',
+      '##.......##',
+      '##......##.',
+      '#########..',
+    ],
+    U: [
+      '##.......##',
+      '##.......##',
+      '##.......##',
+      '##.......##',
+      '##.......##',
+      '.##.....##.',
+      '..#######..',
+    ],
+    A: [
+      '....###....',
+      '...##.##...',
+      '..##...##..',
+      '.##.....##.',
+      '###########',
+      '##.......##',
+      '##.......##',
+    ],
+    L: [
+      '##.........',
+      '##.........',
+      '##.........',
+      '##.........',
+      '##.........',
+      '##.........',
+      '###########',
+    ],
+  };
+
+  const paintDual: Painter = (g) => {
+    // Wider plates get more tracking rather than bigger letters: the bitmap
+    // only reads at its authored size, and letterspacing is the refined way
+    // to fill the extra room.
+    const track = clampI(
+      Math.floor((g.cols * 0.82 - WORD.length * GLYPH_W) / (WORD.length - 1)),
+      2,
+      6,
+    );
+    const wordW = WORD.length * GLYPH_W + (WORD.length - 1) * track;
+    const x0 = R((g.cols - wordW) / 2);
+    const y0 = R((g.rows - (GLYPH_H + 5)) / 2);
+
+    WORD.split('').forEach((ch, i) => {
+      const face = FACE[ch];
+      if (!face) return;
+      const lx = x0 + i * (GLYPH_W + track);
+      face.forEach((line, r) => {
+        for (let c = 0; c < line.length; c++)
+          if (line[c] === '#') g.put(lx + c, y0 + r, '█', 0.92, true);
+      });
+    });
+
+    // Caption: the acronym spelled out, hairline-ruled to the wordmark width.
+    const ruleY = y0 + GLYPH_H + 2;
+    const sub =
+      g.cols >= 52
+        ? 'distributed computing · optimization · learning'
+        : 'distributed · optimization · learning';
+    if (sub.length <= g.cols - 2) {
+      g.hline(ruleY, x0, x0 + wordW - 1, W_HAIR, '┈');
+      g.text(R((g.cols - sub.length) / 2), ruleY + 2, sub, W_LABEL);
+    }
+
+    // The wordmark is the frame the rotation rests on, so it gets the quietest
+    // motion of the four: one soft band of light crossing the letterforms —
+    // every row in phase, which reads as a sheen rather than as scanning — and
+    // a pulse running the rule. Nothing moves; only the light does.
+    g.cycleMs = 3400;
+    for (let r = 0; r < GLYPH_H; r++) {
+      g.flow(
+        g.route([
+          [x0 - 2, y0 + r],
+          [x0 + wordW + 1, y0 + r],
+        ]),
+        0.12,
+        0.8,
+        15,
+        0.6,
+      );
+    }
+    if (sub.length <= g.cols - 2) {
+      g.flow(
+        g.route([
+          [x0, ruleY],
+          [x0 + wordW - 1, ruleY],
+        ]),
+        0.12,
+        0.8,
+        8,
+        0.95,
+      );
+    }
+  };
+
+  const PAINTERS: Record<FrameName, Painter> = {
+    distributed: paintDistributed,
+    optimization: paintOptimization,
+    learning: paintLearning,
+    dual: paintDual,
+  };
+
+  const initAsciiHero = (root: HTMLElement) => {
+    const canvas = root.querySelector<HTMLCanvasElement>('canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const rand = mulberry32(20240913);
+
+    let w = 0;
+    let h = 0;
+    let cols = 0;
+    let rows = 0;
+    let cellW = 0;
+    let cellH = 0;
+    let baseline = 0; // baseline offset from the top of a cell
+    let padX = 0;
+    let padY = 0;
+
+    let artCh: Grid['ch'] = []; // resolved glyph per cell ('' = empty space)
+    let artWt: Grid['wt'] = new Float32Array(0); // per-cell weight → brightness
+    let artSolid: Grid['solid'] = new Uint8Array(0); // 1 = fill the whole cell
+    let artCells: number[] = []; // indices eligible for idle flicker
+    let artFlows: Flow[] = []; // pulses this frame sends along its own wires
+    let artCycle = 2800; // length of one loop of that choreography, ms
+    let flowBuf = new Float32Array(0); // per-cell pulse intensity this tick
+    let shimPhase = new Float32Array(0); // per-cell phase for the idle shimmer
+    let heat = new Float32Array(0); // interaction heat per cell, cools over time
+    let latent = new Uint8Array(0); // deterministic latent-glyph index per cell
+    let flickerUntil = new Float64Array(0); // idle glyph-swap deadline per cell
+    let flickerGlyph = new Uint8Array(0); // swap-glyph index for the duration
+
+    let muted = '#55677c';
+    let fg = '#0b1220';
+    let lut: string[] = [];
+
+    // Smoothed cursor (CSS px relative to canvas) and presence envelope.
+    let tx = 0;
+    let ty = 0;
+    let sx = 0;
+    let sy = 0;
+    let influence = 0;
+    let pointerInside = false;
+
+    let raf = 0;
+
+    // ---- Diffusion-style generation (click interaction) ------------------
+    // Boot: pure Gaussian noise, holding until the viewer asks for something.
+    // One click then plays the whole sequence unattended — sample frame, hold
+    // it, re-noise, sample the next — and settles back into noise at the end,
+    // so the hero always returns to the state that invites the next click.
+    type Phase = 'noise' | 'denoise' | 'formed' | 'dissolve';
+    const DENOISE_MS = 1600;
+    const DISSOLVE_MS = 700;
+    // A frame holds for exactly one loop of its own choreography plus a beat to
+    // settle, so its motion is never cut off mid-pulse and the pacing follows
+    // from the art instead of from a second set of numbers to keep in sync.
+    const HOLD_PAD_MS = 240;
+    // Fine-grained noise set: no full blocks, so the field reads as static
+    // rather than as a wall of ink.
+    const NOISE_SET = ' ·:-=+*#%01<>/\\';
+    let phase: Phase = 'noise';
+    let phaseAt = 0;
+    let frameIdx = 0;
+    // True while a click's sequence is still playing itself out.
+    let running = false;
+    let reveal = new Float32Array(0); // per-cell reveal order, 0..1
+    let noiseVal = new Float32Array(0); // per-cell noise intensity
+    let noiseGlyph = new Uint8Array(0); // per-cell noise glyph index
+    let edgeFade = new Float32Array(0); // per-cell edge falloff, kills the rectangle
+
+    // Idle hint placement, resolved to the grid so it sits on the same
+    // baseline as everything else.
+    let hintText = '';
+    let hintX = 0;
+    let hintY = 0;
+    let hintClear = new Uint8Array(0); // cells where the noise yields to the hint
+    let hintAlpha = 0; // eased, so the hint fades rather than blinks in
+
+    // Box–Muller over the seeded PRNG → clamped gaussian, centered ~0.34.
+    const gaussNoise = () => {
+      const u = Math.max(rand(), 1e-6);
+      const v = rand();
+      const gs = Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+      return Math.min(1, Math.max(0.03, 0.34 + gs * 0.26));
+    };
+
+    // The corner label is a state readout, not the call to action: while the
+    // field is idle the centred hint does that job alone, and two prompts
+    // competing for the same click is one too many.
+    const phaseEl = root.querySelector<HTMLElement>('[data-ascii-phase]');
+    const updateLabel = () => {
+      if (!phaseEl || reduced) return;
+      const f = FRAME_LABEL[FRAME_ORDER[frameIdx]];
+      const step = `${frameIdx + 1}/${FRAME_ORDER.length}`;
+      phaseEl.hidden = phase === 'noise';
+      phaseEl.textContent =
+        phase === 'noise'
+          ? ''
+          : phase === 'denoise'
+            ? `[ sampling: ${f}… ]`
+            : phase === 'dissolve'
+              ? '[ re-noising… ]'
+              : running
+                ? `[ ${f} · ${step} ]`
+                : `[ ${f} · click to run ]`;
+    };
+
+    const readPalette = () => {
+      const cs = getComputedStyle(document.documentElement);
+      muted = cs.getPropertyValue('--muted').trim() || muted;
+      fg = cs.getPropertyValue('--fg').trim() || fg;
+      const a = hexToRgb(muted) ?? [85, 103, 124];
+      const b = hexToRgb(fg) ?? [11, 18, 32];
+      lut = Array.from({ length: LUT_N }, (_, i) => {
+        const t = i / (LUT_N - 1);
+        const r = Math.round(a[0] + (b[0] - a[0]) * t);
+        const g = Math.round(a[1] + (b[1] - a[1]) * t);
+        const bl = Math.round(a[2] + (b[2] - a[2]) * t);
+        return `rgb(${r},${g},${bl})`;
+      });
+    };
+
+    // Compose the current frame into the cell grid.
+    const composeFrame = () => {
+      const g = makeGrid(cols, rows, cellH / cellW);
+      PAINTERS[FRAME_ORDER[frameIdx]](g);
+      artCh = g.ch;
+      artWt = g.wt;
+      artSolid = g.solid;
+      artFlows = g.flows;
+      artCycle = g.cycleMs;
+      if (import.meta.env.DEV) {
+        (window as unknown as Record<string, unknown>).__asciiDump = () =>
+          Array.from({ length: rows }, (_, y) =>
+            artCh
+              .slice(y * cols, (y + 1) * cols)
+              .map((c) => c || ' ')
+              .join(''),
+          ).join('\n');
+      }
+      artCells = [];
+      for (let i = 0; i < artCh.length; i++) {
+        if (PULSE_HOSTS.includes(artCh[i])) artCells.push(i);
+      }
+    };
+
+    const layout = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const rect = canvas.getBoundingClientRect();
+      w = Math.max(1, rect.width);
+      h = Math.max(1, rect.height);
+      canvas.width = Math.round(w * dpr);
+      canvas.height = Math.round(h * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      // Row budget first (the strip is short), then a column floor.
+      const fontSize = clampI(
+        Math.min(h / (TARGET_ROWS * EM_CELL_H), w / (MIN_COLS * EM_ADVANCE)),
+        8.5,
+        15,
+      );
+      ctx.font = `500 ${fontSize}px "JetBrains Mono", ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'alphabetic';
+
+      // Measure the font's own box-drawing ink: '│' spans the full terminal
+      // cell height and '─' overshoots its advance, so a grid built from these
+      // numbers joins into unbroken rules instead of dashed ones.
+      const mh = ctx.measureText('─');
+      const mv = ctx.measureText('│');
+      const inkH = mv.actualBoundingBoxAscent + mv.actualBoundingBoxDescent;
+      const measured = mh.width > 0 && inkH > fontSize * 0.9 && inkH < fontSize * 1.7;
+      cellW = measured ? mh.width : fontSize * EM_ADVANCE;
+      cellH = measured ? inkH : fontSize * EM_CELL_H;
+      baseline = measured ? mv.actualBoundingBoxAscent : fontSize * EM_BASELINE;
+
+      cols = Math.max(8, Math.floor(w / cellW));
+      rows = Math.max(6, Math.floor(h / cellH));
+      padX = (w - cols * cellW) / 2;
+      padY = (h - rows * cellH) / 2;
+
+      heat = new Float32Array(cols * rows);
+      flowBuf = new Float32Array(cols * rows);
+      flickerUntil = new Float64Array(cols * rows);
+      flickerGlyph = new Uint8Array(cols * rows);
+      latent = new Uint8Array(cols * rows);
+      shimPhase = new Float32Array(cols * rows);
+      const lrand = mulberry32(97);
+      for (let i = 0; i < latent.length; i++) latent[i] = Math.floor(lrand() * LATENT.length);
+      // Per-cell phase offset, so the shimmer breathes across the drawing
+      // instead of the whole frame brightening and dimming in lockstep.
+      for (let i = 0; i < shimPhase.length; i++) shimPhase[i] = lrand() * Math.PI * 2;
+
+      reveal = new Float32Array(cols * rows);
+      noiseVal = new Float32Array(cols * rows);
+      noiseGlyph = new Uint8Array(cols * rows);
+      // Edge falloff: noise dissolves toward the borders instead of ending in
+      // a hard rectangle. Margin scales with the grid, smoothstepped.
+      edgeFade = new Float32Array(cols * rows);
+      const margin = Math.max(3, Math.round(Math.min(cols, rows) * 0.18));
+      for (let ey = 0; ey < rows; ey++) {
+        for (let ex = 0; ex < cols; ex++) {
+          const d = Math.min(ex, ey, cols - 1 - ex, rows - 1 - ey);
+          const tN = Math.min(1, d / margin);
+          edgeFade[ey * cols + ex] = tN * tN * (3 - 2 * tN);
+        }
+      }
+      const nrand = mulberry32(4242);
+      for (let i = 0; i < reveal.length; i++) {
+        reveal[i] = nrand();
+        noiseVal[i] = Math.min(1, Math.max(0.03, 0.34 + (nrand() - 0.5) * 0.6));
+        noiseGlyph[i] = Math.floor(nrand() * NOISE_SET.length);
+      }
+
+      // Hint placement. The noise is cleared in a band behind it — feathered
+      // from the ends so the type sits in a soft opening in the field rather
+      // than in a cut-out rectangle.
+      hintText = cols >= HINT_TRACK_COLS ? HINT.split('').join(' ') : HINT;
+      const hintW = hintText.length + 2; // + the caret
+      hintY = R((rows - 1) / 2);
+      hintX = R((cols - hintW) / 2);
+      hintClear = new Uint8Array(cols * rows);
+      const fade = 6;
+      // Three rows of clearance, falling away above and below: type set on a
+      // single cleared row still has static crowding its ascenders.
+      const bands = [1, 0.82, 0.4];
+      for (let d = -2; d <= 2; d++) {
+        const hy = hintY + d;
+        if (hy < 0 || hy >= rows) continue;
+        const band = bands[Math.abs(d)];
+        for (let hx = hintX - fade; hx < hintX + hintW + fade; hx++) {
+          if (hx < 0 || hx >= cols) continue;
+          const over = Math.min(hx - (hintX - fade), hintX + hintW + fade - 1 - hx) / fade;
+          hintClear[hy * cols + hx] = Math.round(255 * band * Math.min(1, over));
+        }
+      }
+
+      composeFrame();
+
+      sx = tx = w / 2;
+      sy = ty = h / 2;
+    };
+
+    const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
+    const draw = (now: number, animate: boolean) => {
+      ctx.clearRect(0, 0, w, h);
+      if (cols === 0 || rows === 0 || lut.length === 0) return;
+
+      // Phase machine. One click starts a run and the run advances itself:
+      // sample → hold → re-noise → sample the next. After the last frame it
+      // lands back on noise rather than looping, so the sequence has an ending
+      // and the field returns to the state that invites the next click.
+      if (animate) {
+        if (phase === 'denoise' && now - phaseAt >= DENOISE_MS) {
+          phase = 'formed';
+          phaseAt = now;
+          updateLabel();
+        }
+        if (phase === 'formed' && running && now - phaseAt >= artCycle + HOLD_PAD_MS) {
+          phase = 'dissolve';
+          phaseAt = now;
+          updateLabel();
+        }
+        if (phase === 'dissolve' && now - phaseAt >= DISSOLVE_MS) {
+          phaseAt = now;
+          if (frameIdx >= FRAME_ORDER.length - 1) {
+            running = false;
+            frameIdx = 0;
+            phase = 'noise';
+          } else {
+            frameIdx += 1;
+            composeFrame();
+            phase = 'denoise';
+          }
+          updateLabel();
+        }
+      }
+
+      if (animate) {
+        // Cursor momentum runs in every phase: the idle hint answers the
+        // pointer before there is any drawing for the halo to light up.
+        sx += (tx - sx) * 0.16;
+        sy += (ty - sy) * 0.16;
+        influence += ((pointerInside ? 1 : 0) - influence) * 0.1;
+
+        if (phase === 'formed') {
+          // Idle life: status marks pulse now and then, like indicator lamps.
+          if (artCells.length > 0 && rand() < 0.07) {
+            const i = artCells[Math.floor(rand() * artCells.length)];
+            if (flickerUntil[i] < now) {
+              flickerUntil[i] = now + 120 + rand() * 220;
+              flickerGlyph[i] = Math.floor(rand() * PULSE.length);
+            }
+          }
+        } else {
+          // Noise shimmer: continuously re-roll a slice of the field.
+          const churn = Math.max(4, Math.floor(cols * rows * 0.05));
+          for (let k = 0; k < churn; k++) {
+            const i = Math.floor(rand() * noiseVal.length);
+            noiseVal[i] = gaussNoise();
+            noiseGlyph[i] = Math.floor(rand() * NOISE_SET.length);
+          }
+        }
+      }
+
+      // Flow pulses: every frame sends traffic along the wires it drew itself,
+      // choreographed on its own cycle — dispatches down a bus, an iterate
+      // walking a staircase, a gradient coming back through the layers. Motion
+      // that restates what the drawing already claims, rather than decoration.
+      if (flowBuf.length > 0) flowBuf.fill(0);
+      if (animate && phase === 'formed') {
+        const u = ((now - phaseAt) / artCycle) % 1;
+        for (const fl of artFlows) {
+          if (u < fl.from || u > fl.to) continue;
+          const len = fl.cells.length;
+          const head = ((u - fl.from) / (fl.to - fl.from)) * (len - 1 + fl.trail);
+          const lo = Math.max(0, Math.ceil(head - fl.trail));
+          const hi = Math.min(len - 1, Math.floor(head));
+          for (let j = lo; j <= hi; j++) {
+            const t = 1 - (head - j) / fl.trail; // 1 at the head, 0 at the tail
+            const v = t * t * fl.gain;
+            const ci = fl.cells[j];
+            if (v > flowBuf[ci]) flowBuf[ci] = v;
+          }
+        }
+      }
+
+      const cursorCol = (sx - padX) / cellW;
+      const cursorRow = (sy - padY) / cellH;
+      // Slow scanline sweep over the formed frame only.
+      const sweepRow =
+        animate && phase === 'formed' ? ((now / 7000) % 1) * (rows + 10) - 5 : -1e9;
+      const pDen = (now - phaseAt) / DENOISE_MS;
+      const pDis = (now - phaseAt) / DISSOLVE_MS;
+      // Global annealing: the whole noise field thins out while sampling runs,
+      // like a diffusion timestep, so the resolve never feels purely local.
+      let anneal = 1;
+      if (phase === 'denoise') anneal = 1 - 0.45 * clamp01(pDen);
+      else if (phase === 'dissolve') anneal = 0.55 + 0.45 * clamp01(pDis);
+
+      for (let cy = 0; cy < rows; cy++) {
+        const ds = cy - sweepRow;
+        const sweep = 1 + 0.2 * Math.exp(-(ds * ds) / 8);
+        const cellTop = padY + cy * cellH;
+        const y = cellTop + baseline;
+        for (let cx = 0; cx < cols; cx++) {
+          const i = cy * cols + cx;
+          const x = padX + (cx + 0.5) * cellW;
+          const art = artCh[i];
+
+          // How resolved this cell is: 0 = pure noise, 1 = frame art.
+          let q: number;
+          if (phase === 'noise') q = 0;
+          else if (phase === 'formed') q = 1;
+          else if (phase === 'denoise') q = clamp01((pDen - reveal[i] * 0.62) / 0.32);
+          else q = 1 - clamp01((pDis - reveal[i] * 0.6) / 0.34);
+
+          // Halo heat only accumulates on the formed frame; it cools otherwise.
+          if (animate && phase === 'formed' && influence > 0.01) {
+            const dx = cx + 0.5 - cursorCol;
+            const dy = cy + 0.5 - cursorRow;
+            const dist = Math.hypot(dx, dy);
+            let target = 0;
+            if (dist < HALO_R) {
+              const t = 1 - dist / HALO_R;
+              target = t * t * (3 - 2 * t) * influence; // smoothstep falloff
+            }
+            const prev = heat[i];
+            heat[i] = target > prev ? target : Math.max(target, prev - 0.045);
+          }
+          const ht = heat[i];
+
+          // Gaussian noise underlay, edge-feathered and faded out as the cell
+          // resolves — no hard rectangle border.
+          const nv = noiseVal[i];
+          // The field yields behind the hint, so the type sits in an opening
+          // rather than fighting the static for the same cells.
+          const yield_ = hintAlpha > 0.01 ? 1 - 0.95 * (hintClear[i] / 255) * hintAlpha : 1;
+          const nAlpha = (0.08 + 0.5 * nv * nv) * (1 - q) * edgeFade[i] * anneal * yield_;
+          if (nAlpha > 0.015) {
+            ctx.globalAlpha = nAlpha;
+            ctx.fillStyle = lut[Math.floor((0.25 + 0.75 * nv) * (LUT_N - 1))];
+            ctx.fillText(NOISE_SET[noiseGlyph[i]], x, y);
+          }
+
+          if (q > 0 && art !== '') {
+            let glyph = art;
+            let solid = artSolid[i] === 1;
+            const fv = flowBuf[i];
+            if (animate && q < 1) {
+              // Mid-sampling: cycle sampler glyphs before settling.
+              glyph = SCRAMBLE[Math.floor(rand() * SCRAMBLE.length)];
+              solid = false;
+            } else if (animate && flickerUntil[i] > now) {
+              glyph = PULSE[flickerGlyph[i]];
+            } else if (fv > PACKET_AT && PACKET_HOSTS.includes(art)) {
+              // At the head of a pulse the hairline becomes the packet it is
+              // carrying. Denser than the rule it stands in for, so it reads as
+              // something travelling and never as a break in the line. The
+              // threshold is set to cover the leading couple of cells: on a
+              // monochrome hairline a brightness step alone barely registers,
+              // and it is the change in density that the eye actually tracks.
+              glyph = '▪';
+            }
+            // Weight drives brightness (muted → fg); heat flares toward fg,
+            // and a passing pulse lifts the line it is running along.
+            const wt = artWt[i];
+            // Micro-shimmer: the drawing breathes cell by cell. Solid cells sit
+            // it out — mottling the wordmark would read as a dithering fault.
+            const shim =
+              solid || !animate ? 1 : 1 + SHIM_AMP * Math.sin(now * SHIM_W + shimPhase[i]);
+            let bright = ((0.26 + 0.74 * wt) * sweep + ht * 0.9 + fv * 0.85) * shim;
+            if (bright > 1) bright = 1;
+            let alpha = ((0.42 + 0.58 * wt) * sweep + ht * 0.5 + fv * 0.6) * shim;
+            if (alpha > 1) alpha = 1;
+            ctx.fillStyle = lut[Math.floor(bright * (LUT_N - 1))];
+            ctx.globalAlpha = alpha * q;
+            if (solid) ctx.fillRect(padX + cx * cellW, cellTop, cellW + 0.5, cellH + 0.5);
+            else ctx.fillText(glyph, x, y);
+          } else if (q >= 1 && ht > 0.03) {
+            // Latent signal: faint deterministic glyphs revealed in the halo.
+            ctx.fillStyle = lut[Math.floor(ht * 0.55 * (LUT_N - 1))];
+            ctx.globalAlpha = ht * 0.42;
+            ctx.fillText(LATENT[latent[i]], x, y);
+          }
+        }
+      }
+
+      // The idle hint, eased in and out so it arrives with the noise rather
+      // than being switched on over it.
+      if (animate) hintAlpha += ((phase === 'noise' ? 1 : 0) - hintAlpha) * 0.055;
+      else hintAlpha = 0;
+      if (hintAlpha > 0.01 && hintText !== '') {
+        const lift = 0.86 + 0.14 * influence; // answers an approaching pointer
+        const breathe = 0.88 + 0.12 * Math.sin(now * 0.0015);
+        const hy = padY + hintY * cellH + baseline;
+        ctx.globalAlpha = hintAlpha * breathe * lift;
+        ctx.fillStyle = lut[Math.floor(0.86 * (LUT_N - 1))];
+        for (let k = 0; k < hintText.length; k++) {
+          if (hintText[k] === ' ') continue;
+          ctx.fillText(hintText[k], padX + (hintX + k + 0.5) * cellW, hy);
+        }
+        // Caret. The one element on the field keeping strict time — a heartbeat
+        // in a picture that is otherwise pure static, which is what makes the
+        // noise read as waiting for input rather than as a dead texture. Drawn
+        // as a rect: the block glyph is shorter than its cell and sits wrong.
+        if (now % CARET_MS < CARET_MS * 0.62) {
+          ctx.globalAlpha = hintAlpha * lift;
+          ctx.fillStyle = lut[LUT_N - 1];
+          ctx.fillRect(
+            padX + (hintX + hintText.length + 1) * cellW,
+            padY + hintY * cellH + cellH * 0.18,
+            Math.max(1.5, cellW * 0.5),
+            cellH * 0.66,
+          );
+        }
+      }
+      ctx.globalAlpha = 1;
+    };
+
+    const loop = (now: number) => {
+      draw(now, true);
+      raf = requestAnimationFrame(loop);
+    };
+
+    const start = () => {
+      cancelAnimationFrame(raf);
+      if (reduced) draw(0, false);
+      else raf = requestAnimationFrame(loop);
+    };
+
+    readPalette();
+    layout();
+    // Deep-link/debug: ?ascii=<frame> boots straight into that formed frame.
+    const pin = new URLSearchParams(window.location.search).get('ascii');
+    if (pin && (FRAME_ORDER as string[]).includes(pin)) {
+      frameIdx = FRAME_ORDER.indexOf(pin as FrameName);
+      composeFrame();
+      phase = 'formed';
+      updateLabel();
+    } else if (reduced) {
+      // Reduced motion: skip the performance entirely — one static DUAL frame.
+      frameIdx = FRAME_ORDER.indexOf('dual');
+      composeFrame();
+      phase = 'formed';
+    }
+    start();
+
+    new ResizeObserver(() => {
+      layout();
+      if (reduced) draw(0, false);
+    }).observe(canvas);
+
+    new MutationObserver(() => {
+      readPalette();
+      if (reduced) draw(0, false);
+    }).observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme'],
+    });
+
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) cancelAnimationFrame(raf);
+      else start();
+    });
+
+    root.addEventListener('pointermove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      tx = e.clientX - rect.left;
+      ty = e.clientY - rect.top;
+      pointerInside = true;
+    });
+    root.addEventListener('pointerleave', () => {
+      pointerInside = false;
+    });
+
+    // One click off the noise field plays the whole sequence; a click on a
+    // formed frame cuts its hold short and moves on, so an impatient viewer is
+    // answered instead of ignored. Clicks mid-transition are dropped.
+    const trigger = () => {
+      if (reduced) return;
+      if (phase === 'noise') {
+        running = true;
+        frameIdx = 0;
+        composeFrame();
+        phase = 'denoise';
+        phaseAt = performance.now();
+        updateLabel();
+      } else if (phase === 'formed') {
+        running = true;
+        phase = 'dissolve';
+        phaseAt = performance.now();
+        updateLabel();
+      }
+    };
+
+    root.addEventListener('click', trigger);
+    root.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      e.preventDefault();
+      trigger();
+    });
+
+    // Re-layout once real JetBrains Mono metrics are available.
+    if (document.fonts) {
+      document.fonts.ready.then(() => {
+        layout();
+        if (reduced) draw(0, false);
+      });
+    }
+  };
+
+  document.querySelectorAll<HTMLElement>('[data-ascii-hero]').forEach(initAsciiHero);
+</script>

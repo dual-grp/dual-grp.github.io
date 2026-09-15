@@ -1,0 +1,24 @@
+---
+interface Props {
+  class?: string;
+  /**
+   * When the beam is lit: `focus` = wrapper focused or .is-beaming,
+   * `hover` = wrapper hovered, `on` = always, `off` = never (renders the
+   * slot without any wrapper — used to keep optional beams zero-cost).
+   */
+  trigger?: 'focus' | 'hover' | 'on' | 'off';
+}
+
+const { class: className, trigger = 'on' } = Astro.props;
+---
+
+{
+  trigger === 'off' ? (
+    <slot />
+  ) : (
+    <div class:list={['border-beam-wrap', `beam-${trigger}`, className]}>
+      <div class="border-beam" aria-hidden="true" />
+      <slot />
+    </div>
+  )
+}
