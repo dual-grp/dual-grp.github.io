@@ -7,7 +7,7 @@ authors:
   - Nguyen H. Tran
 year: 2026
 kind: conference
-status: "Accepted at EMNLP 2026"
+status: "Conference on Empirical Methods in Natural Language Processing (EMNLP), 2026"
 bibtex: |
   @inproceedings{han2026favor,
     title     = {{FAVoR}: Measuring and Mitigating Author-Style Homogenization in Federated Personalized Generation},

@@ -10,7 +10,7 @@ authors:
   - Dung D. Le
 year: 2026
 kind: conference
-status: "CVPR 2026"
+status: "IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2026"
 url: https://arxiv.org/abs/2603.13795
 venue_url: https://openaccess.thecvf.com/content/CVPR2026/html/Nguyen_Computation_and_Communication_Efficient_Federated_Unlearning_via_On-server_Gradient_Conflict_CVPR_2026_paper.html
 code: https://github.com/skydvn/FOUL
