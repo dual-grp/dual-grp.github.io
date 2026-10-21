@@ -10,7 +10,7 @@ authors:
   - Stefano V. Albrecht
 year: 2026
 kind: journal
-status: "Accepted at TMLR"
+status: "Transactions on Machine Learning Research (TMLR), 2026"
 url: https://arxiv.org/abs/2510.18183
 venue_url: https://openreview.net/forum?id=yIA2Fjs1FK
 code: https://github.com/ntu-agents/nashpg

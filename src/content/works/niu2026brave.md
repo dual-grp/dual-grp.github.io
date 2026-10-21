@@ -14,7 +14,7 @@ authors:
   - Nguyen H. Tran
 year: 2026
 kind: journal
-status: "Accepted at TMLR"
+status: "Transactions on Machine Learning Research (TMLR), 2026"
 url: https://openreview.net/forum?id=iWFI5hO1dZ
 venue_url: https://openreview.net/forum?id=iWFI5hO1dZ
 code: https://github.com/zerunniu/BRAVE
