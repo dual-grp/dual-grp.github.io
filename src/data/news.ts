@@ -10,6 +10,20 @@ export interface NewsItem {
 /** Newest first. Rendered on the homepage News section. */
 export const NEWS: NewsItem[] = [
   {
+    date: '2026-10',
+    tag: 'paper',
+    title:
+      'Our paper FeDEQ was accepted to IEEE IoT Journal, on federated deep equilibrium learning for resource-constrained edge networks.',
+    href: '/research/#le2026fedeq',
+  },
+  {
+    date: '2026-10',
+    tag: 'paper',
+    title:
+      'We published BRAVE in TMLR — block-wise structural regularization for reliable label aggregation under sparse crowdsourcing.',
+    href: '/research/#niu2026brave',
+  },
+  {
     date: '2026-08',
     tag: 'paper',
     title:
